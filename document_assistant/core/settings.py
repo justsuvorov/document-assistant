@@ -1,5 +1,5 @@
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, SecretStr
 
 
 class Settings(BaseSettings):
@@ -29,6 +29,12 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("ai_prompt_template", mode="before")
+    @classmethod
+    def unescape_newlines(cls, v: str) -> str:
+        """Convert literal \\n sequences from .env into real newlines."""
+        return v.replace("\\n", "\n")
 
 
 settings = Settings()
