@@ -40,7 +40,7 @@ class DocumentPreprocessor(Preprocessor):
     def query(self):
         '''Make full query for LLM model'''
         origin_data = self._parser.origin_data(self._request.file_path)
-        text_content = self._text_encoder.prepared_data(origin_data["path"])
+        text_content = self._text_encoder.prepared_data(origin_data)
         references = self._build_references()
 
         return self._prompt_engine.build(

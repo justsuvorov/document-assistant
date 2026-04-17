@@ -13,3 +13,6 @@ psycopg2-binary
 python-multipart
 httpx[socks]
 socksio>=1.0.0
+openpyxl
+python-docx
+pdfplumber
