@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+environs
+sqlalchemy
+pydantic_settings
+pandas
+pytest
+google-genai
+httpx
+aiogram
+gunicorn
+psycopg2-binary
+python-multipart
+httpx[socks]
+socksio>=1.0.0
