@@ -1,52 +1,79 @@
 import re
 
+from document_assistant.reports.report_models import InsuranceReport, ReportRow
+
+
 class PostProcessor:
-    def __init__(self):
-        # Список паттернов, которые мы не хотим видеть в финальном посте
-        self._trash_patterns = [
-            r"^(Вот|Готовый|Ваш|Исправленный|Текст|Результат).+?:\n+",
-            r"^Конечно,.+?\n+",
-            r"^Держи.+?\n+",
-            r"Надеюсь, это поможет.*$",
-            r"Если нужно что-то исправить.*$"
-        ]
+    """Parse the raw LLM markdown response into a structured InsuranceReport.
 
-    def report(self, raw_text: str) -> str:
-        """
+    Expected LLM output format:
+        ...optional text...
+        | Требование клиента | Покрытие по программе | Статус | Комментарий |
+        |---|---|---|---|
+        | row 1 ... |
+        ...
+        ...summary text after the table...
+    """
 
-        """
+    # Matches a markdown table row: | cell | cell | ... |
+    _ROW_RE = re.compile(r"^\|(.+)\|$", re.MULTILINE)
+    # Matches a separator row: |---|---| or |:---:|
+    _SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$", re.MULTILINE)
+
+    def report(self, raw_text: str) -> InsuranceReport:
         if not raw_text:
-            return ""
+            return InsuranceReport(raw_text=raw_text)
 
-        # 1. Удаляем Markdown блоки кода (```), если Gemini обернула в них текст
-        # Это часто бывает, когда модель пытается быть "аккуратной"
-        clean_text = re.sub(r'```(?:\w+)?\n?', '', raw_text)
-        clean_text = clean_text.replace('```', '')
+        rows = self._parse_table(raw_text)
+        summary = self._extract_summary(raw_text)
 
-        # 2. Удаляем лишние кавычки по краям (если модель процитировала сама себя)
-        clean_text = clean_text.strip().strip('"').strip("'")
+        return InsuranceReport(rows=rows, summary=summary, raw_text=raw_text)
 
-        # 3. Чистим вводные фразы ("Вот ваш пост:", "Конечно, я помогу...")
-        for pattern in self._trash_patterns:
-            clean_text = re.sub(pattern, "", clean_text, flags=re.IGNORECASE | re.MULTILINE)
+    def _parse_table(self, text: str) -> list[ReportRow]:
+        all_row_matches = self._ROW_RE.findall(text)
+        if not all_row_matches:
+            return []
 
-        # 4. Нормализуем пробелы и пустые строки (не более двух переносов подряд)
-        clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)
-        clean_text = self._escape_for_markdown_v2(clean_text)
+        result = []
+        header_skipped = False
 
-        return clean_text.strip()
+        for raw_row in all_row_matches:
+            # Skip separator rows
+            if re.fullmatch(r"[\s\-:|]+(\|[\s\-:|]+)*", raw_row.strip()):
+                continue
 
-    def _escape_for_markdown_v2(self, text: str) -> str:
-        # 1. Экранируем все стандартные спецсимволы (кроме звездочки)
-        escape_chars = r'_[]()~`>#+-=|{}.!'
-        text = re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+            cells = [c.strip() for c in raw_row.split("|")]
 
-        # 2. Экранируем точки после цифр (списки 1\. 2\.)
-        text = re.sub(r'(\d+)\.', r'\1\.', text)
+            # Skip the header row (first non-separator row)
+            if not header_skipped:
+                header_skipped = True
+                continue
 
-        # 3. Хитрый трюк со звездочками:
-        # Нам нужно сохранить **, но экранировать одиночные *.
-        # Используем негативный lookbehind и lookahead, чтобы найти * не рядом с другой *
-        text = re.sub(r'(?<!\*)\*(?!\*)', r'\*', text)
+            # Pad to at least 4 columns
+            while len(cells) < 4:
+                cells.append("")
 
-        return text
+            result.append(ReportRow(
+                client_requirement=cells[0],
+                program_coverage=cells[1],
+                status=cells[2],
+                comment=cells[3],
+            ))
+
+        return result
+
+    def _extract_summary(self, text: str) -> str:
+        """Return the text block that comes after the last table row."""
+        lines = text.splitlines()
+        last_table_line = -1
+
+        for i, line in enumerate(lines):
+            if self._ROW_RE.match(line.strip()):
+                last_table_line = i
+
+        if last_table_line == -1:
+            # No table found — treat the whole response as summary
+            return text.strip()
+
+        after = "\n".join(lines[last_table_line + 1:]).strip()
+        return after
