@@ -1,6 +1,8 @@
 import re
 from abc import ABC, abstractmethod
 
+from document_assistant.core.settings import settings
+
 
 class Encoder(ABC):
     @abstractmethod
@@ -14,9 +16,14 @@ class TextEncoder(Encoder):
     Removes noise that wastes tokens without adding information:
     repeated blank lines, trailing spaces on each line, non-printable
     characters, and BOM markers.
+
+    The character cap is taken from LLM_MAX_CHARS in settings so it can be
+    raised for large-context models (e.g. Qwen2.5-72b supports 128k tokens).
     """
 
-    _MAX_CHARS = 60_000  # safety cap; adjust based on model context window
+    @property
+    def _MAX_CHARS(self) -> int:
+        return settings.llm_max_chars
 
     def prepared_data(self, source: str) -> str:
         if not source:

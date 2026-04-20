@@ -5,7 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from document_assistant.ai.encoders import TextEncoder
-from document_assistant.ai.model import GeminiModel
+from document_assistant.ai.model import ModelFactory
 from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask
 from document_assistant.ai.promt_builders import PromptEngine
@@ -42,7 +42,7 @@ def main(request: APIRequest):
             examples_path=settings.examples_path,
         ),
         postprocessor=PostProcessor(),
-        ai_model=GeminiModel(),
+        ai_model=ModelFactory.create(),
         report_export=ReportExport(processing_task),
     )
 

@@ -9,16 +9,23 @@ class Settings(BaseSettings):
     normative_base: str = Field(..., alias="NORMATIVE_BASE")
     examples_path: str = Field("", alias="EXAMPLES_PATH")
 
-    # --- DATABASE ---
-    database_url: str = Field(..., alias="DATABASE_URL")
-
-    # --- AI ---
-    gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
-    model_name: str = Field("gemini-1.5-flash", alias="AI_MODEL_NAME")
+    # --- AI (общее) ---
+    # Допустимые значения: "ollama" | "gemini" | "anthropic"
+    ai_provider: str = Field("ollama", alias="AI_PROVIDER")
     ai_temperature: float = Field(0.2, alias="AI_TEMPERATURE")
 
-    # --- TELEGRAM (optional) ---
-    telegram_bot_token: SecretStr | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
+    # --- Ollama (локальный Docker или удалённый GPU-сервер) ---
+    llm_base_url: str = Field("http://ollama:11434", alias="LLM_BASE_URL")
+    llm_model_name: str = Field("qwen2.5:7b", alias="LLM_MODEL_NAME")
+    llm_max_chars: int = Field(60_000, alias="LLM_MAX_CHARS")
+
+    # --- Gemini ---
+    gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")
+    model_name: str = Field("gemini-2.0-flash", alias="AI_MODEL_NAME")
+
+    # --- Anthropic ---
+    anthropic_api_key: SecretStr | None = Field(None, alias="ANTHROPIC_API_KEY")
+    anthropic_model_name: str = Field("claude-sonnet-4-6", alias="ANTHROPIC_MODEL_NAME")
 
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")

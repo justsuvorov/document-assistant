@@ -1,6 +1,12 @@
 """Shared pytest fixtures: create minimal mock files at test time."""
+import os
 import pytest
 from pathlib import Path
+
+# Set required env vars before any app module is imported (settings validation)
+os.environ.setdefault("NORMATIVE_BASE", "/tmp/test_normative")
+os.environ.setdefault("AI_ROLE", "Test role")
+os.environ.setdefault("AI_PROMPT_TEMPLATE", "{role} {normative_base} {examples} {source_text}")
 
 from openpyxl import Workbook
 from docx import Document

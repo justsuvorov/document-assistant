@@ -33,7 +33,8 @@ class TestTextEncoder:
             assert line == line.rstrip()
 
     def test_truncates_oversized_text(self):
-        big = "а" * (TextEncoder._MAX_CHARS + 1000)
+        limit = self.enc._MAX_CHARS
+        big = "а" * (limit + 1000)
         result = self.enc.prepared_data(big)
-        assert len(result) <= TextEncoder._MAX_CHARS + 100  # allow for suffix
+        assert len(result) <= limit + 100  # allow for suffix
         assert "обрезан" in result
