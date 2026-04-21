@@ -10,13 +10,10 @@ services:
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_KEEP_ALIVE=24h
-      # CPU (тестирование): ограничиваем параллелизм для экономии RAM
       - OLLAMA_NUM_PARALLEL=1
       - OLLAMA_MAX_LOADED_MODELS=1
     deploy:
       resources:
-        # CPU: ограничиваем память под текущую машину (8 ГБ RAM)
-        # GPU: удалить блок limits целиком — VRAM управляется драйвером
         limits:
           memory: 5500m
         # GPU (NVIDIA): раскомментировать и удалить limits выше
@@ -26,13 +23,12 @@ services:
         #       count: all
         #       capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 15s
 
-  # Загружает модель при первом запуске. Повторные запуски — мгновенные (volume).
   ollama-init:
     image: ollama/ollama
     container_name: ollama_init
@@ -42,7 +38,6 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5:7b}
     entrypoint: ["/bin/sh", "-c", "ollama pull ${LLM_MODEL_NAME:-qwen2.5:7b}"]
     volumes:
       - ollama_data:/root/.ollama
@@ -56,7 +51,6 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
-    env_file: .env
     ports:
       - "8000:80"
     volumes:
@@ -64,7 +58,24 @@ services:
       - ./normative_base:/app/normative_base
       - ./examples:/app/examples
     environment:
+      # Пути
+      - NORMATIVE_BASE=${NORMATIVE_BASE:-/app/normative_base}
+      - EXAMPLES_PATH=${EXAMPLES_PATH:-/app/examples}
+      # LLM
+      - AI_PROVIDER=${AI_PROVIDER:-ollama}
+      - AI_TEMPERATURE=${AI_TEMPERATURE:-0.2}
       - LLM_BASE_URL=http://ollama:11434
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5:7b}
+      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-60000}
+      # Облачные провайдеры (если AI_PROVIDER=gemini или anthropic)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - AI_MODEL_NAME=${AI_MODEL_NAME:-gemini-2.0-flash}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL_NAME=${ANTHROPIC_MODEL_NAME:-claude-sonnet-4-6}
+      # Промты — обязательные, берутся из .env
+      - AI_ROLE=${AI_ROLE}
+      - AI_PROMPT_TEMPLATE=${AI_PROMPT_TEMPLATE}
+      # Gunicorn
       - MAX_WORKERS=2
       - TIMEOUT=300
 
