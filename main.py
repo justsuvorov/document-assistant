@@ -1,6 +1,4 @@
-import traceback
-
-from fastapi import FastAPI, status
+from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
@@ -18,43 +16,33 @@ from document_assistant.services.assistant import AIAssistantService
 app = FastAPI()
 
 
-@app.post("/api/update")
-def main(request: APIRequest):
-    processing_task = ProcessingTask(
+def _build_service(request: APIRequest) -> AIAssistantService:
+    task = ProcessingTask(
         request_id=request.request_id,
         file_path=request.file_path,
         user_name=request.user_name,
     )
-
-    print(f"Запрос получен: {request.file_path}", flush=True)
-    print("Запуск обработки", flush=True)
-
-    ai = AIAssistantService(
+    return AIAssistantService(
         preprocessor=DocumentPreprocessor(
             data_parser=DataParser(file_path=request.file_path),
-            request=processing_task,
+            request=task,
             encoder=TextEncoder(),
             prompt_engine=PromptEngine(
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
                 normative_base=settings.normative_base,
+                num_ctx=settings.llm_num_ctx if settings.ai_provider == "ollama" else 0,
             ),
             examples_path=settings.examples_path,
         ),
         postprocessor=PostProcessor(),
         ai_model=ModelFactory.create(),
-        report_export=ReportExport(processing_task),
+        report_export=ReportExport(task),
     )
 
-    try:
-        response = ai.result()
-        return JSONResponse(
-            content=jsonable_encoder(response),
-            status_code=status.HTTP_200_OK,
-        )
-    except Exception:
-        response = {"error": traceback.format_exc()}
-        return JSONResponse(
-            content=jsonable_encoder(response),
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
+
+@app.post("/api/update")
+def submit(request: APIRequest):
+    ai = _build_service(request)
+    result = ai.result()
+    return JSONResponse(content=jsonable_encoder(result))

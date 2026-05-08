@@ -1,5 +1,6 @@
-import re
 from pathlib import Path
+
+from document_assistant.ai.context_builder import ContextBuilder, NormativeIndex
 
 
 class NormativeBaseLoader:
@@ -32,7 +33,6 @@ class NormativeBaseLoader:
         if path.suffix.lower() in self._PLAIN_TEXT:
             return path.read_text(encoding="utf-8").strip()
 
-        # Structured formats — reuse DataParser
         from document_assistant.core.parsers import DataParser
         try:
             return DataParser(str(path)).origin_data(str(path))
@@ -62,37 +62,45 @@ class PromptEngine:
         {normative_base} — loaded insurance normative documents
         {examples}       — few-shot examples (may be empty)
         {source_text}    — client request converted to markdown
+
+    If ``num_ctx > 0`` the engine first tries to fit the full normative base.
+    When it doesn't fit, it splits the base into sections and retrieves only
+    the most relevant ones (keyword overlap with source_text).
     """
 
-    def __init__(self, role: str, template: str, normative_base: str):
-        """
-        Args:
-            role:           System role string (who the AI is).
-            template:       Prompt template with {role}/{normative_base}/
-                            {examples}/{source_text} placeholders.
-            normative_base: Path (file or directory) to normative documents.
-        """
+    def __init__(self, role: str, template: str, normative_base: str, num_ctx: int = 0):
         self._role = role
         self._template = template
-        self._normative_base_content = NormativeBaseLoader().load(normative_base)
+        norm_text = NormativeBaseLoader().load(normative_base)
+        self._norm_index = NormativeIndex(norm_text)
+        self._context_builder = ContextBuilder(num_ctx, self._norm_index) if num_ctx > 0 else None
+
+        if num_ctx > 0:
+            print(
+                f"[INFO] Нормативная база: {self._norm_index.section_count} разделов, "
+                f"контекст {num_ctx} токенов",
+                flush=True,
+            )
 
     def build(self, source_text: str, examples: list[str]) -> str:
-        """Render the final prompt string.
-
-        Args:
-            source_text: Client document converted to markdown.
-            examples:    List of formatted few-shot example strings.
-        """
         examples_block = ""
         if examples:
             examples_block = "\n\n".join(
                 f"### Пример {i + 1}\n{ex}" for i, ex in enumerate(examples)
             )
 
+        if self._context_builder:
+            return self._context_builder.build(
+                template=self._template,
+                role=self._role,
+                examples=examples_block,
+                source_text=source_text,
+            )
+
         try:
             return self._template.format(
                 role=self._role,
-                normative_base=self._normative_base_content,
+                normative_base=self._norm_index.full_text,
                 examples=examples_block,
                 source_text=source_text,
             )
