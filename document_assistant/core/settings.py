@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     llm_model_name: str = Field("qwen2.5:7b", alias="LLM_MODEL_NAME")
     llm_max_chars: int = Field(60_000, alias="LLM_MAX_CHARS")
     llm_num_ctx: int = Field(32_768, alias="LLM_NUM_CTX")
+    llm_max_sections: int = Field(15, alias="LLM_MAX_SECTIONS")
 
     # --- Gemini ---
     gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")

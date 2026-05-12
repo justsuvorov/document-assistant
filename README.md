@@ -2,15 +2,13 @@
 
 Сервис для автоматической обработки клиентских запросов по страхованию.
 
-Клиент присылает документ (Excel, Word или PDF) с перечнем необходимых страховых случаев.
-Сервис находит наиболее подходящую программу страхования из нормативной базы,
-сравнивает её с требованиями клиента и возвращает ответ в формате клиента с комментариями «Есть / Нет / Частично».
+Клиент присылает документ (Excel или Word) с перечнем необходимых страховых услуг.
+Сервис сопоставляет их с нормативной базой страховых программ, анализирует каждое требование
+и возвращает структурированный ответ с отметками «Есть / Нет / Частично».
 
 ---
 
 ## Архитектура
-
-Диаграмма классов — [docs/class_diagram.md](docs/class_diagram.md)
 
 ```
 POST /api/update
@@ -19,151 +17,109 @@ POST /api/update
  AIAssistantService
        │
        ├── DocumentPreprocessor
-       │       ├── DataParser          — читает файл клиента (Excel / Word / PDF) → markdown
-       │       ├── TextEncoder         — нормализует текст перед отправкой в LLM
-       │       ├── NormativeBaseLoader — загружает нормативную базу (файл или папка)
-       │       ├── ExamplesLoader      — загружает примеры ответов из папки examples/
-       │       └── PromptEngine        — собирает итоговый промт
+       │       ├── DataParser          — читает файл клиента (.xlsx / .docx) → текст
+       │       ├── TextEncoder         — нормализует текст
+       │       ├── DocumentChunker     — разбивает документ на разделы (^\\d+\\.\\s)
+       │       └── PromptEngine        — собирает промт для каждого чанка
+       │               └── ContextBuilder  — подбирает нормативную базу под контекст
+       │                       └── NormativeIndex — Jaccard-поиск по 144 разделам
        │
        ├── ModelFactory                — выбирает модель по AI_PROVIDER
-       │       ├── GeminiModel         — облачная модель Google Gemini
-       │       └── LocalLLMModel       — локальная модель через Ollama (HTTP)
+       │       ├── OllamaModel         — локальный CPU или удалённый GPU-сервер
+       │       ├── GeminiModel         — Google Gemini API (облако)
+       │       └── AnthropicModel      — Anthropic Claude API (облако)
        │
        ├── PostProcessor               — парсит ответ LLM → InsuranceReport
+       │       └── InsuranceReport.merge() — объединяет ответы по всем чанкам
        │
-       └── ReportExport                — сохраняет файл в формате клиента
-               ├── ExcelReportWriter   — .xlsx / .xls
-               └── WordReportWriter    — .docx / .doc (fallback для PDF)
+       └── ReportExport                — сохраняет результат в формате клиента
+               ├── ExcelReportWriter   — .xlsx
+               └── WordReportWriter    — .docx
 ```
 
 ---
 
-## Работа с LLM
-
-### Выбор модели
-
-Модель выбирается через переменную `AI_PROVIDER` в `.env` — без изменений в коде.
-При старте приложения `ModelFactory.create()` читает настройку и создаёт нужный объект:
+## Поток данных
 
 ```
-AI_PROVIDER=gemini  →  GeminiModel    (Google Gemini API, облако)
-AI_PROVIDER=local   →  LocalLLMModel  (Ollama, локальный Docker-контейнер)
+client.xlsx / client.docx
+       ↓  DataParser
+Сырой текст
+       ↓  TextEncoder
+Нормализованный текст
+       ↓  DocumentChunker  (разбивка по пронумерованным разделам)
+[chunk1, chunk2, ..., chunkN]
+       ↓  для каждого чанка: PromptEngine.build()
+Промты с нормативной базой
+       ↓  AIModel.response()
+Сырые ответы LLM
+       ↓  PostProcessor → InsuranceReport.merge()
+Итоговый InsuranceReport
+       ↓  ReportExport
+client_ответ.xlsx / client_ответ.docx
 ```
-
-Оба класса реализуют один интерфейс `AIModel.response(query: str) -> str`,
-поэтому остальной код не знает, с какой моделью работает.
 
 ---
 
-### Локальная модель (Ollama)
+## Выбор модели
 
-#### Как загружается модель
+Модель задаётся через `AI_PROVIDER` в `.env`. `ModelFactory.create()` возвращает нужный объект —
+остальной код не знает какая модель используется (`AIModel.response(query) -> str`).
 
-Загрузка происходит один раз при первом `docker compose up` через сервис `ollama-init`:
-
-```
-docker compose up
-        │
-        ├── ollama          — запускает HTTP-сервер на :11434
-        │       └── healthcheck: GET /api/tags → 200 OK
-        │
-        ├── ollama-init     — ждёт healthy, затем:
-        │       └── ollama pull qwen2.5:7b  (~4.7 ГБ, Q4_K_M квантизация)
-        │               └── модель сохраняется в Docker volume ollama_data
-        │
-        └── api             — стартует только после ollama-init: completed
-```
-
-При повторных запусках `ollama pull` проверяет хэши и выходит мгновенно —
-модель уже лежит в volume и не скачивается заново.
-
-#### Как модель хранится в памяти
-
-`OLLAMA_KEEP_ALIVE=24h` держит модель загруженной в RAM между запросами.
-Без этого Ollama выгружает модель через 5 минут простоя, и следующий запрос
-ждёт ~10–30 секунд холодного старта.
-
-```
-Первый запрос:   загрузка в RAM (~10–30 сек) + инференс
-Следующие:       только инференс (модель уже в памяти)
-```
-
-Параметры экономии памяти (8 ГБ RAM):
-
-| Переменная | Значение | Эффект |
+| `AI_PROVIDER` | Класс | Когда использовать |
 |---|---|---|
-| `OLLAMA_NUM_PARALLEL` | `1` | одна задача за раз, не делит RAM |
-| `OLLAMA_MAX_LOADED_MODELS` | `1` | не держит в памяти вторую модель |
-| `memory limit` | `5500m` | защищает хост от OOM |
-
-#### Как происходит запрос
-
-`LocalLLMModel` отправляет синхронный HTTP POST в контейнер Ollama:
-
-```
-FastAPI (api:80)
-    │
-    │  POST http://ollama:11434/api/chat
-    │  {
-    │    "model": "qwen2.5:7b",
-    │    "messages": [{"role": "user", "content": "<промт>"}],
-    │    "stream": false,
-    │    "options": {"temperature": 0.2}
-    │  }
-    │
-ollama:11434
-    │
-    └── ответ: {"message": {"content": "<текст ответа>"}}
-```
-
-Таймаут запроса — 120 секунд (с запасом на CPU-инференс).
-`stream: false` — ждём полный ответ, не стриминг, это проще для парсинга таблицы.
+| `ollama` | `OllamaModel` | Локальный CPU-тест или GPU-сервер с Qwen |
+| `gemini` | `GeminiModel` | Облако, быстрое тестирование |
+| `anthropic` | `AnthropicModel` | Облако, высокое качество |
 
 ---
 
-### Облачная модель (Gemini)
+## Управление контекстом (только для Ollama)
 
-`GeminiModel` использует официальный SDK `google-genai`.
-Переключение — только `AI_PROVIDER=gemini` в `.env`, ключ `GEMINI_API_KEY` обязателен.
+При `AI_PROVIDER=ollama` включается `ContextBuilder`, который следит за размером промта:
 
----
-
-### Добавление новой модели
-
-Достаточно унаследоваться от `AIModel` и зарегистрировать в `ModelFactory`:
-
-```python
-class MyModel(AIModel):
-    def response(self, query: str) -> str:
-        ...
-
-# в ModelFactory.create():
-if settings.ai_provider == "my_provider":
-    return MyModel(...)
 ```
+PromptEngine.build(chunk)
+    │
+    ├── Полная нормативная база влезает в LLM_NUM_CTX?
+    │       Да → отправляем как есть
+    │
+    └── Нет → NormativeIndex.retrieve(chunk, budget)
+            Jaccard-scoring по ключевым словам чанка
+            Берём топ LLM_MAX_SECTIONS наиболее релевантных разделов
+            Возвращаем только их
+```
+
+Для Gemini и Anthropic `ContextBuilder` не создаётся — вся нормативная база идёт в промт целиком
+(контекст 1M / 200k токенов).
 
 ---
 
 ## Быстрый старт
 
-### 1. Установить зависимости
+### 1. Настроить `.env`
 
 ```bash
-pip install -r requirements.txt
+cp .env.example .env   # если есть шаблон
+# или отредактировать .env напрямую
 ```
 
-### 2. Создать `.env`
+### 2. Запустить через Docker Compose
 
 ```bash
-cp .env.example .env
+docker compose up -d
 ```
 
-Заполнить все обязательные переменные (см. раздел [Конфигурация](#конфигурация)).
+Контейнеры:
+- `api` — FastAPI на порту `8001`
+- `ollama` — Ollama HTTP API на порту `11434`
 
-### 3. Запустить сервер
+### 3. Убедиться что нужная модель загружена в Ollama
 
 ```bash
-uvicorn main:app --reload
+docker exec ollama ollama pull qwen2.5:7b      # тест на CPU
+# или
+docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
 ```
 
 ---
@@ -172,16 +128,15 @@ uvicorn main:app --reload
 
 ### `POST /api/update`
 
-Принимает путь к файлу клиента, запускает обработку, возвращает путь к результирующему файлу.
+Принимает путь к файлу клиента, запускает обработку, возвращает путь к результату.
 
 **Тело запроса:**
 
 ```json
 {
   "request_id": 1,
-  "file_path": "/data/requests/client_request.xlsx",
-  "user_name": "Иванов И.И.",
-  "priority": 0
+  "file_path": "/app/uploads/client.xlsx",
+  "user_name": "Иванов И.И."
 }
 ```
 
@@ -191,36 +146,94 @@ uvicorn main:app --reload
 {
   "request_id": 1,
   "user_name": "Иванов И.И.",
-  "output_file": "/data/requests/client_request_ответ.xlsx"
+  "output_file": "/app/uploads/client_ответ.xlsx"
 }
 ```
 
-Выходной файл создаётся рядом с входным с суффиксом `_ответ`.
+Выходной файл создаётся рядом с входным с суффиксом `_ответ`. Формат совпадает с входным.
 
 ---
 
 ## Конфигурация
 
-Все параметры задаются через `.env`. Пример — в [.env.example](.env.example).
-
-| Переменная | Обязательная | Описание |
-|---|---|---|
-| `NORMATIVE_BASE` | Да | Путь к нормативной базе (файл или папка с документами) |
-| `EXAMPLES_PATH` | Нет | Путь к папке с примерами (см. ниже) |
-| `AI_PROVIDER` | Нет | `gemini` (по умолчанию) или `local` |
-| `AI_TEMPERATURE` | Нет | Температура генерации (по умолчанию `0.2`) |
-| `AI_ROLE` | Да | Системная роль модели |
-| `AI_PROMPT_TEMPLATE` | Да | Шаблон промта с плейсхолдерами `{role}`, `{normative_base}`, `{examples}`, `{source_text}` |
-| `GEMINI_API_KEY` | При `AI_PROVIDER=gemini` | API-ключ Google Gemini |
-| `AI_MODEL_NAME` | Нет | Модель Gemini (по умолчанию `gemini-1.5-flash`) |
-| `LLM_BASE_URL` | При `AI_PROVIDER=local` | Адрес Ollama (по умолчанию `http://ollama:11434`) |
-| `LLM_MODEL_NAME` | При `AI_PROVIDER=local` | Модель Ollama (по умолчанию `qwen2.5:7b`) |
+| Переменная | Обязательная | По умолчанию | Описание |
+|---|---|---|---|
+| `NORMATIVE_BASE` | Да | — | Путь к нормативной базе (файл или папка) |
+| `EXAMPLES_PATH` | Нет | `""` | Путь к папке с примерами few-shot |
+| `AI_PROVIDER` | Нет | `ollama` | `ollama` / `gemini` / `anthropic` |
+| `AI_TEMPERATURE` | Нет | `0.2` | Температура генерации |
+| `AI_ROLE` | Да | — | Системная роль модели |
+| `AI_PROMPT_TEMPLATE` | Да | — | Шаблон промта (`{role}`, `{normative_base}`, `{examples}`, `{source_text}`) |
+| `LLM_BASE_URL` | Ollama | `http://ollama:11434` | Адрес Ollama (Docker или GPU-сервер) |
+| `LLM_MODEL_NAME` | Ollama | `qwen2.5:7b` | Модель Ollama |
+| `LLM_NUM_CTX` | Ollama | `32768` | Размер контекстного окна в токенах |
+| `LLM_MAX_CHARS` | Ollama | `60000` | Лимит символов в промте |
+| `LLM_MAX_SECTIONS` | Ollama | `15` | Максимум разделов нормативной базы в промте |
+| `GEMINI_API_KEY` | Gemini | — | API-ключ Google Gemini |
+| `AI_MODEL_NAME` | Gemini | `gemini-2.0-flash` | Модель Gemini |
+| `ANTHROPIC_API_KEY` | Anthropic | — | API-ключ Anthropic |
+| `ANTHROPIC_MODEL_NAME` | Anthropic | `claude-sonnet-4-6` | Модель Anthropic |
 
 Многострочные значения в `.env` записываются в одну строку с `\n`:
 
 ```env
 AI_PROMPT_TEMPLATE={role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_base}\n\n...
 ```
+
+### Типовые конфигурации
+
+**CPU-тест (локально):**
+```env
+AI_PROVIDER=ollama
+LLM_MODEL_NAME=qwen2.5:1.5b
+LLM_NUM_CTX=4096
+LLM_MAX_CHARS=10000
+LLM_MAX_SECTIONS=2
+```
+
+**GPU-сервер (production):**
+```env
+AI_PROVIDER=ollama
+LLM_BASE_URL=http://<server-ip>:11434
+LLM_MODEL_NAME=qwen2.5:72b
+LLM_NUM_CTX=131072
+LLM_MAX_CHARS=400000
+LLM_MAX_SECTIONS=15
+```
+
+**Облако (тестирование):**
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+AI_MODEL_NAME=gemini-2.0-flash
+```
+
+---
+
+## Нормативная база
+
+`NORMATIVE_BASE` указывает на файл (`.docx`, `.xlsx`, `.txt`) или папку — все файлы будут загружены и объединены.
+
+`NormativeIndex` автоматически разбивает текст на разделы по приоритету:
+1. Нумерованные разделы (`1. Название`)
+2. Markdown-заголовки (`# Название`)
+3. Заголовки КАПСЛОКОМ
+4. Абзацные подзаголовки
+
+---
+
+## Примеры (few-shot)
+
+```
+examples/
+  001/
+    client.xlsx      # запрос клиента
+    response.docx    # ответ специалиста
+  002/
+    ...
+```
+
+Каждая подпапка — один пример. Два файла: первый по алфавиту — запрос, второй — ответ.
 
 ---
 
@@ -230,36 +243,7 @@ AI_PROMPT_TEMPLATE={role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_bas
 |---|---|---|
 | `.xlsx` / `.xls` | Да | Да |
 | `.docx` / `.doc` | Да | Да |
-| `.pdf` | Да | Fallback → `.docx` |
-
----
-
-## Примеры (few-shot)
-
-Для повышения качества ответов можно добавить примеры в папку `EXAMPLES_PATH`.
-
-Структура:
-
-```
-examples/
-  001/
-    client.xlsx      # запрос клиента (любой поддерживаемый формат)
-    response.docx    # ответ специалиста (любой поддерживаемый формат)
-  002/
-    ...
-```
-
-Каждая подпапка — один пример. В ней должно быть ровно два файла:
-первый (по алфавиту) — запрос клиента, второй — ответ специалиста.
-
----
-
-## Нормативная база
-
-`NORMATIVE_BASE` может указывать на:
-
-- **Файл** — `.txt`, `.md`, `.docx`, `.pdf`, `.xlsx`
-- **Папку** — все поддерживаемые файлы в ней будут загружены и объединены
+| `.pdf` | Да | Нет (fallback → `.docx`) |
 
 ---
 
@@ -269,8 +253,6 @@ examples/
 pytest tests/ -v
 ```
 
-Тесты не требуют реальных файлов — все фикстуры создаются программно через `tmp_path`.
-
 ---
 
 ## Структура проекта
@@ -278,21 +260,24 @@ pytest tests/ -v
 ```
 document_assistant/
   ai/
-    encoders.py        — TextEncoder
-    model.py           — AIModel, GeminiModel
-    postprocessor.py   — PostProcessor (парсинг ответа LLM)
-    preprocessor.py    — DocumentPreprocessor, ExamplesLoader, ProcessingTask
-    promt_builders.py  — PromptEngine, NormativeBaseLoader
+    context_builder.py  — NormativeIndex (Jaccard-поиск), ContextBuilder (подбор под контекст)
+    encoders.py         — TextEncoder
+    model.py            — AIModel, OllamaModel, GeminiModel, AnthropicModel, ModelFactory
+    postprocessor.py    — PostProcessor
+    preprocessor.py     — DocumentPreprocessor, DocumentChunker, ExamplesLoader, ProcessingTask
+    promt_builders.py   — PromptEngine, NormativeBaseLoader
   core/
-    parsers.py         — DataParser, Excel, Word, PDF, MarkdownTableBuilder
-    pydantic_models.py — схема входящего запроса
-    settings.py        — Settings (pydantic-settings)
+    parsers.py          — DataParser (.xlsx / .docx / .pdf)
+    pydantic_models.py  — APIRequest
+    settings.py         — Settings (pydantic-settings)
   reports/
-    report_models.py   — InsuranceReport, ReportRow
-    report_export.py   — ReportExport
-    writers.py         — ExcelReportWriter, WordReportWriter
+    report_models.py    — InsuranceReport, ReportRow
+    report_export.py    — ReportExport
+    writers.py          — ExcelReportWriter, WordReportWriter
   services/
-    assistant.py       — AIAssistantService (оркестратор)
-main.py                — FastAPI приложение
-tests/                 — pytest-тесты
+    assistant.py        — AIAssistantService
+main.py                 — FastAPI приложение
+docker-compose.yaml
+.env
+tests/
 ```

@@ -10,6 +10,8 @@ Flow for each client chunk:
 import re
 from typing import NamedTuple
 
+from document_assistant.core.settings import settings
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -53,7 +55,9 @@ class NormativeIndex:
     def section_count(self) -> int:
         return len(self._sections)
 
-    MAX_SECTIONS = 15  # cap to keep prompts fast on CPU
+    @property
+    def MAX_SECTIONS(self) -> int:
+        return settings.llm_max_sections
 
     def retrieve(self, query: str, budget_chars: int) -> str:
         """Return the most relevant sections that fit within budget_chars."""
