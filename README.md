@@ -17,12 +17,12 @@ POST /api/update
  AIAssistantService
        │
        ├── DocumentPreprocessor
-       │       ├── DataParser          — читает файл клиента (.xlsx / .docx) → текст
-       │       ├── TextEncoder         — нормализует текст
-       │       ├── DocumentChunker     — разбивает документ на разделы (^\\d+\\.\\s)
+       │       ├── DataParser          — читает файл клиента (.xlsx / .docx / .pdf) → текст
+       │       ├── TextEncoder         — нормализует текст, обрезает до LLM_MAX_CHARS
+       │       ├── DocumentChunker     — делит на чанки (разделы / заголовки / батчи строк)
        │       └── PromptEngine        — собирает промт для каждого чанка
-       │               └── ContextBuilder  — подбирает нормативную базу под контекст
-       │                       └── NormativeIndex — Jaccard-поиск по 144 разделам
+       │               └── ContextBuilder  — RAG: подбирает нормативную базу под бюджет
+       │                       └── NormativeIndex — Jaccard-поиск по разделам базы
        │
        ├── ModelFactory                — выбирает модель по AI_PROVIDER
        │       ├── OllamaModel         — локальный CPU или удалённый GPU-сервер
@@ -42,21 +42,22 @@ POST /api/update
 ## Поток данных
 
 ```
-client.xlsx / client.docx
+client.xlsx / client.docx / client.pdf
        ↓  DataParser
 Сырой текст
-       ↓  TextEncoder
+       ↓  TextEncoder  (обрезка до LLM_MAX_CHARS символов)
 Нормализованный текст
-       ↓  DocumentChunker  (разбивка по пронумерованным разделам)
+       ↓  DocumentChunker  (стратегия — см. раздел ниже)
 [chunk1, chunk2, ..., chunkN]
        ↓  для каждого чанка: PromptEngine.build()
-Промты с нормативной базой
-       ↓  AIModel.response()
-Сырые ответы LLM
+Промты с нормативной базой (RAG через ContextBuilder)
+       ↓  AIModel.response()  ×N  (параллельно или последовательно)
+Сырые ответы LLM  (N строк-ответов)
        ↓  PostProcessor → InsuranceReport.merge()
-Итоговый InsuranceReport
+Итоговый InsuranceReport  (все строки объединены в порядке чанков)
        ↓  ReportExport
-client_ответ.xlsx / client_ответ.docx
+client_ответ.xlsx  —  исходный файл + 3 новых столбца
+client_ответ.docx  —  новый файл с таблицей (для Word/PDF/прочих)
 ```
 
 ---
@@ -74,24 +75,60 @@ client_ответ.xlsx / client_ответ.docx
 
 ---
 
-## Управление контекстом (только для Ollama)
+## Разбивка документа на чанки (DocumentChunker)
 
-При `AI_PROVIDER=ollama` включается `ContextBuilder`, который следит за размером промта:
+Ключевое бизнес-требование: **ответ на каждое требование клиента отдельно, без группировок**.
+Клиент загружает таблицу с N строками — система возвращает ровно N строк ответа.
+
+Для больших документов и контроля размера промта DocumentChunker делит текст на части.
+Стратегии применяются по приоритету (первая сработавшая используется):
+
+```
+Нормализованный текст
+       │
+       ├─ 1. Нумерованные разделы  (строки вида "1. Название")
+       │       Каждый раздел → отдельный чанк
+       │
+       ├─ 2. Markdown-заголовки  (строки, начинающиеся с #)
+       │       Каждый заголовок + его тело → чанк
+       │       Если внутри есть большая таблица → применяется стратегия 3
+       │
+       ├─ 3. Батчинг строк таблицы  (Markdown-таблица > LLM_BATCH_SIZE строк)
+       │       Заголовок таблицы повторяется в каждом батче
+       │       Пример: 322 строки, LLM_BATCH_SIZE=25 → 13 чанков по 25 строк
+       │
+       └─ 4. Fallback  — весь документ как один чанк
+```
+
+Каждый чанк обрабатывается отдельным запросом к LLM. Ответы объединяются в правильном порядке
+через `InsuranceReport.merge()`.
+
+Для отладки при каждом запросе создаётся файл `<имя_клиента>_debug.md` рядом с исходником.
+
+---
+
+## Управление контекстом (ContextBuilder)
+
+`ContextBuilder` работает для **всех провайдеров** и следит за тем, чтобы нормативная база
+помещалась в контекстное окно модели. Бюджет задаётся отдельно для каждого провайдера.
 
 ```
 PromptEngine.build(chunk)
     │
-    ├── Полная нормативная база влезает в LLM_NUM_CTX?
-    │       Да → отправляем как есть
+    ├── Полная нормативная база помещается в бюджет (LLM_NUM_CTX / GEMINI_NUM_CTX / ...)?
+    │       Да → отправляем полностью
     │
     └── Нет → NormativeIndex.retrieve(chunk, budget)
             Jaccard-scoring по ключевым словам чанка
             Берём топ LLM_MAX_SECTIONS наиболее релевантных разделов
-            Возвращаем только их
+            Возвращаем только их (RAG)
 ```
 
-Для Gemini и Anthropic `ContextBuilder` не создаётся — вся нормативная база идёт в промт целиком
-(контекст 1M / 200k токенов).
+| Провайдер | Переменная бюджета | Типовое значение |
+|---|---|---|
+| Ollama | `LLM_NUM_CTX` | 32 768 токенов |
+| Gemini | `GEMINI_NUM_CTX` | 500 000 символов |
+| Anthropic | `ANTHROPIC_NUM_CTX` | 200 000 токенов |
 
 ---
 
@@ -164,15 +201,23 @@ docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
 | `AI_TEMPERATURE` | Нет | `0.2` | Температура генерации |
 | `AI_ROLE` | Да | — | Системная роль модели |
 | `AI_PROMPT_TEMPLATE` | Да | — | Шаблон промта (`{role}`, `{normative_base}`, `{examples}`, `{source_text}`) |
+| **Разбивка и размер документа** | | | |
+| `LLM_MAX_CHARS` | Нет | `60000` | Максимум символов из клиентского файла перед разбивкой. Увеличьте до `400000` для больших таблиц. |
+| `LLM_BATCH_SIZE` | Нет | `25` | Строк в одном батче при разбивке таблицы (стратегия 3) |
+| `LLM_MAX_CHUNKS` | Нет | `0` | Лимит чанков для обработки (`0` = все). Полезно при отладке. |
+| **Ollama** | | | |
 | `LLM_BASE_URL` | Ollama | `http://ollama:11434` | Адрес Ollama (Docker или GPU-сервер) |
 | `LLM_MODEL_NAME` | Ollama | `qwen2.5:7b` | Модель Ollama |
-| `LLM_NUM_CTX` | Ollama | `32768` | Размер контекстного окна в токенах |
-| `LLM_MAX_CHARS` | Ollama | `60000` | Лимит символов в промте |
-| `LLM_MAX_SECTIONS` | Ollama | `15` | Максимум разделов нормативной базы в промте |
+| `LLM_NUM_CTX` | Ollama | `32768` | Контекстное окно в токенах (передаётся в ContextBuilder) |
+| `LLM_MAX_SECTIONS` | Все | `15` | Максимум разделов нормативной базы в одном промте (RAG-лимит) |
+| **Gemini** | | | |
 | `GEMINI_API_KEY` | Gemini | — | API-ключ Google Gemini |
 | `AI_MODEL_NAME` | Gemini | `gemini-2.0-flash` | Модель Gemini |
+| `GEMINI_NUM_CTX` | Gemini | `1000000` | Бюджет символов для нормативной базы в ContextBuilder |
+| **Anthropic** | | | |
 | `ANTHROPIC_API_KEY` | Anthropic | — | API-ключ Anthropic |
 | `ANTHROPIC_MODEL_NAME` | Anthropic | `claude-sonnet-4-6` | Модель Anthropic |
+| `ANTHROPIC_NUM_CTX` | Anthropic | `200000` | Бюджет токенов для нормативной базы в ContextBuilder |
 
 Многострочные значения в `.env` записываются в одну строку с `\n`:
 
@@ -182,13 +227,15 @@ AI_PROMPT_TEMPLATE={role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_bas
 
 ### Типовые конфигурации
 
-**CPU-тест (локально):**
+**CPU-тест (локально, ограниченная мощность):**
 ```env
 AI_PROVIDER=ollama
 LLM_MODEL_NAME=qwen2.5:1.5b
 LLM_NUM_CTX=4096
 LLM_MAX_CHARS=10000
 LLM_MAX_SECTIONS=2
+LLM_BATCH_SIZE=10
+LLM_MAX_CHUNKS=1        # обработать только первый чанк для проверки
 ```
 
 **GPU-сервер (production):**
@@ -199,13 +246,29 @@ LLM_MODEL_NAME=qwen2.5:72b
 LLM_NUM_CTX=131072
 LLM_MAX_CHARS=400000
 LLM_MAX_SECTIONS=15
+LLM_BATCH_SIZE=25
 ```
 
-**Облако (тестирование):**
+**Облако Gemini (рекомендуется для тестирования):**
 ```env
 AI_PROVIDER=gemini
 GEMINI_API_KEY=...
-AI_MODEL_NAME=gemini-2.0-flash
+AI_MODEL_NAME=gemini-2.5-flash-lite
+LLM_MAX_CHARS=400000
+LLM_BATCH_SIZE=25
+GEMINI_NUM_CTX=500000   # ограничивает нормативную базу в промте
+LLM_MAX_SECTIONS=2
+```
+
+**Облако Anthropic (высокое качество):**
+```env
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL_NAME=claude-sonnet-4-6
+LLM_MAX_CHARS=400000
+LLM_BATCH_SIZE=25
+ANTHROPIC_NUM_CTX=200000
+LLM_MAX_SECTIONS=15
 ```
 
 ---

@@ -5,6 +5,7 @@ from pathlib import Path
 from document_assistant.ai.encoders import Encoder
 from document_assistant.ai.promt_builders import PromptEngine
 from document_assistant.core.parsers import DataParser
+from document_assistant.core.settings import settings
 
 
 @dataclass
@@ -19,14 +20,18 @@ class DocumentChunker:
     """Split a parsed document into logical chunks.
 
     Strategy (tried in order):
-    1. Numbered sections — lines matching ``^\\d+\\.\\s`` (e.g. "1. Программа ...").
-       Only the section body is kept; the preamble (general terms) is dropped
-       to keep prompts focused on service data.
-    2. Markdown headings — lines starting with ``#``.
-    3. Fallback — the whole document as one chunk.
+    1. Numbered sections — lines matching ``^\\d+\\.\\s``
+    2. Markdown headings — lines starting with ``#``
+    3. Markdown table rows — batches of ``batch_size`` data rows
+    4. Fallback — the whole document as one chunk.
     """
 
     _NUMBERED = re.compile(r"^\d+\.\s")
+    _TABLE_ROW = re.compile(r"^\|.+\|$")
+    _TABLE_SEP = re.compile(r"^\|[\s\-:|]+\|$")
+
+    def __init__(self, batch_size: int = 25):
+        self._batch_size = batch_size
 
     def split(self, text: str) -> list[str]:
         if not text.strip():
@@ -37,6 +42,15 @@ class DocumentChunker:
             return chunks
 
         chunks = self._split_headings(text)
+        if len(chunks) > 1:
+            # Further split any chunk that contains a large table
+            result = []
+            for chunk in chunks:
+                sub = self._split_table_rows(chunk)
+                result.extend(sub)
+            return result
+
+        chunks = self._split_table_rows(text)
         if len(chunks) > 1:
             return chunks
 
@@ -72,6 +86,44 @@ class DocumentChunker:
             chunk = "\n".join(current).strip()
             if chunk:
                 chunks.append(chunk)
+        return chunks
+
+    def _split_table_rows(self, text: str) -> list[str]:
+        """Split a markdown table into batches of batch_size data rows."""
+        lines = text.splitlines()
+
+        # Find header row and separator
+        header_idx = sep_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if self._TABLE_ROW.match(stripped) and header_idx is None:
+                header_idx = i
+            elif header_idx is not None and self._TABLE_SEP.match(stripped):
+                sep_idx = i
+                break
+
+        if header_idx is None or sep_idx is None:
+            return [text.strip()]
+
+        data_rows = [
+            line for line in lines[sep_idx + 1:]
+            if self._TABLE_ROW.match(line.strip())
+        ]
+
+        if len(data_rows) <= self._batch_size:
+            return [text.strip()]
+
+        preamble = "\n".join(lines[:header_idx]).strip()
+        header = lines[header_idx]
+        separator = lines[sep_idx]
+
+        chunks: list[str] = []
+        for i in range(0, len(data_rows), self._batch_size):
+            batch = data_rows[i:i + self._batch_size]
+            table = "\n".join([header, separator] + batch)
+            chunk = f"{preamble}\n\n{table}" if preamble else table
+            chunks.append(chunk.strip())
+
         return chunks
 
 
@@ -151,7 +203,7 @@ class DocumentPreprocessor(Preprocessor):
         self._prompt_engine = prompt_engine
         self._examples_loader = ExamplesLoader()
         self._examples_path = examples_path
-        self._chunker = DocumentChunker()
+        self._chunker = DocumentChunker(batch_size=settings.llm_batch_size)
 
     def queries(self) -> list[str]:
         """Return one prompt per document chunk (no examples, full normative base)."""

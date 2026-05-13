@@ -1,7 +1,8 @@
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from docx import Document
 from docx.shared import Pt, RGBColor
@@ -41,7 +42,7 @@ class ReportWriter(ABC):
     ]
 
     @abstractmethod
-    def write(self, report: InsuranceReport, output_path: Path) -> Path:
+    def write(self, report: InsuranceReport, output_path: Path, source_path: Path = None) -> Path:
         pass
 
 
@@ -49,7 +50,12 @@ class ReportWriter(ABC):
 
 class ExcelReportWriter(ReportWriter):
 
-    def write(self, report: InsuranceReport, output_path: Path) -> Path:
+    def write(self, report: InsuranceReport, output_path: Path, source_path: Path = None) -> Path:
+        if source_path and source_path.suffix.lower() in (".xlsx", ".xls"):
+            return self._write_annotated(report, output_path, source_path)
+        return self._write_new(report, output_path)
+
+    def _write_new(self, report: InsuranceReport, output_path: Path) -> Path:
         wb = Workbook()
         ws = wb.active
         ws.title = "Сравнение"
@@ -57,6 +63,50 @@ class ExcelReportWriter(ReportWriter):
         self._write_header_row(ws)
         self._write_data_rows(ws, report.rows)
         self._apply_column_widths(ws)
+
+        if report.summary:
+            self._write_summary_sheet(wb, report.summary)
+
+        wb.save(output_path)
+        return output_path
+
+    def _write_annotated(self, report: InsuranceReport, output_path: Path, source_path: Path) -> Path:
+        """Copy source file and append 3 annotation columns."""
+        shutil.copy2(source_path, output_path)
+        wb = load_workbook(output_path)
+        ws = wb.active
+
+        last_col = ws.max_column
+        new_headers = ["Покрытие по программе", "Статус", "Комментарий"]
+
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill("solid", fgColor=_HEADER)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        wrap = Alignment(vertical="top", wrap_text=True)
+        thin = Side(style="thin", color="CCCCCC")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for i, title in enumerate(new_headers):
+            col = last_col + 1 + i
+            cell = ws.cell(row=1, column=col, value=title)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            ws.column_dimensions[cell.column_letter].width = [45, 14, 50][i]
+
+        for row_idx, row in enumerate(report.rows, start=2):
+            cov_cell = ws.cell(row=row_idx, column=last_col + 1, value=row.program_coverage)
+            cov_cell.alignment = wrap
+            cov_cell.border = border
+
+            status_cell = ws.cell(row=row_idx, column=last_col + 2, value=row.status)
+            status_cell.fill = PatternFill("solid", fgColor=_status_fill(row.status))
+            status_cell.alignment = wrap
+            status_cell.border = border
+
+            comment_cell = ws.cell(row=row_idx, column=last_col + 3, value=row.comment)
+            comment_cell.alignment = wrap
+            comment_cell.border = border
 
         if report.summary:
             self._write_summary_sheet(wb, report.summary)
@@ -118,7 +168,7 @@ class ExcelReportWriter(ReportWriter):
 
 class WordReportWriter(ReportWriter):
 
-    def write(self, report: InsuranceReport, output_path: Path) -> Path:
+    def write(self, report: InsuranceReport, output_path: Path, source_path: Path = None) -> Path:
         doc = Document()
 
         heading = doc.add_heading("Анализ страхового покрытия", level=1)

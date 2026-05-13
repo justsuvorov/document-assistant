@@ -29,7 +29,7 @@ class ReportExport:
     def response(self, report: InsuranceReport) -> dict:
         output_path = self._build_output_path()
         writer = self._select_writer(output_path)
-        saved_path = writer.write(report, output_path)
+        saved_path = writer.write(report, output_path, Path(self._task.file_path))
 
         return {
             "request_id": self._task.request_id,

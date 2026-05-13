@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_num_ctx: int = Field(32_768, alias="LLM_NUM_CTX")
     llm_max_sections: int = Field(15, alias="LLM_MAX_SECTIONS")
     llm_max_chunks: int = Field(0, alias="LLM_MAX_CHUNKS")  # 0 = без ограничений
+    llm_batch_size: int = Field(25, alias="LLM_BATCH_SIZE")
 
     # --- Gemini ---
     gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")
