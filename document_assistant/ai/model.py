@@ -27,7 +27,7 @@ class GeminiModel(AIModel):
             temperature=settings.ai_temperature,
             top_p=0.95,
             top_k=64,
-            max_output_tokens=8192,
+            max_output_tokens=16384,
         )
 
     _MAX_RETRIES = 5
@@ -43,19 +43,26 @@ class GeminiModel(AIModel):
                 )
                 if not result or not result.text:
                     raise ValueError("Gemini не вернула текст (возможно, сработал фильтр)")
+                finish = getattr(result.candidates[0], 'finish_reason', 'unknown') if result.candidates else 'unknown'
+                tokens_out = getattr(result.usage_metadata, 'candidates_token_count', '?') if result.usage_metadata else '?'
+                print(f"[INFO] Gemini finish_reason={finish}, output_tokens={tokens_out}, chars={len(result.text)}", flush=True)
                 return result.text.strip()
-            except genai_errors.ClientError as e:
+            except (genai_errors.ClientError, genai_errors.ServerError) as e:
                 code = getattr(e, 'status_code', None) or getattr(e, 'code', None)
-                is_429 = code == 429 or "429" in str(e)
-                if is_429 and attempt < self._MAX_RETRIES - 1:
+                is_retryable = code in (429, 503) or "429" in str(e) or "503" in str(e)
+                if is_retryable and attempt < self._MAX_RETRIES - 1:
                     wait = self._parse_retry_delay(str(e)) + 5
-                    print(f"[WARN] Gemini 429 — ожидание {wait}с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
+                    print(f"[WARN] Gemini {code} — ожидание {wait}с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
                     time.sleep(wait)
                     continue
                 raise RuntimeError(f"Ошибка Gemini API: {e}") from e
             except Exception as e:
+                if attempt < self._MAX_RETRIES - 1 and any(s in str(e) for s in ("disconnected", "connection", "timeout")):
+                    print(f"[WARN] Gemini сетевая ошибка — ожидание 10с (попытка {attempt + 1}/{self._MAX_RETRIES}): {e}", flush=True)
+                    time.sleep(10)
+                    continue
                 raise RuntimeError(f"Ошибка Gemini API: {e}") from e
-        raise RuntimeError("Gemini API: исчерпаны все попытки (429)")
+        raise RuntimeError("Gemini API: исчерпаны все попытки")
 
     @staticmethod
     def _parse_retry_delay(message: str) -> int:

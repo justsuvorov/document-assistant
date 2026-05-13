@@ -15,6 +15,16 @@ from document_assistant.services.assistant import AIAssistantService
 
 app = FastAPI()
 
+_NUM_CTX = {
+    "ollama": lambda: settings.llm_num_ctx,
+    "gemini": lambda: settings.gemini_num_ctx,
+    "anthropic": lambda: settings.anthropic_num_ctx,
+}
+
+
+def _num_ctx() -> int:
+    return _NUM_CTX.get(settings.ai_provider, lambda: settings.llm_num_ctx)()
+
 
 def _build_service(request: APIRequest) -> AIAssistantService:
     task = ProcessingTask(
@@ -31,7 +41,7 @@ def _build_service(request: APIRequest) -> AIAssistantService:
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
                 normative_base=settings.normative_base,
-                num_ctx=settings.llm_num_ctx if settings.ai_provider == "ollama" else 0,
+                num_ctx=_num_ctx(),
             ),
             examples_path=settings.examples_path,
         ),

@@ -20,14 +20,17 @@ class Settings(BaseSettings):
     llm_max_chars: int = Field(60_000, alias="LLM_MAX_CHARS")
     llm_num_ctx: int = Field(32_768, alias="LLM_NUM_CTX")
     llm_max_sections: int = Field(15, alias="LLM_MAX_SECTIONS")
+    llm_max_chunks: int = Field(0, alias="LLM_MAX_CHUNKS")  # 0 = без ограничений
 
     # --- Gemini ---
     gemini_api_key: SecretStr | None = Field(None, alias="GEMINI_API_KEY")
     model_name: str = Field("gemini-2.0-flash", alias="AI_MODEL_NAME")
+    gemini_num_ctx: int = Field(1_000_000, alias="GEMINI_NUM_CTX")
 
     # --- Anthropic ---
     anthropic_api_key: SecretStr | None = Field(None, alias="ANTHROPIC_API_KEY")
     anthropic_model_name: str = Field("claude-sonnet-4-6", alias="ANTHROPIC_MODEL_NAME")
+    anthropic_num_ctx: int = Field(200_000, alias="ANTHROPIC_NUM_CTX")
 
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")
