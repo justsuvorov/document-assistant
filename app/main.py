@@ -21,6 +21,7 @@ UPLOADS_DIR       = PROJECT_DIR / "uploads"
 NORMATIVE_DIR     = PROJECT_DIR / "normative_base"
 CONTAINER_UPLOADS = "/app/uploads"
 API_URL           = "http://localhost:8001/api/update"
+_LOGO_PATH        = PROJECT_DIR / "app" / "assets" / "vsk_logo.png"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -79,17 +80,25 @@ def DocumentAssistantApp(self):
 
     # ── Callbacks ─────────────────────────────────────────────────────────
 
+    def _open_file_dialog(title: str, start_dir: str, filters: str) -> str:
+        dialog = QFileDialog(None, title, start_dir, filters)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        if dialog.exec():
+            files = dialog.selectedFiles()
+            return files[0] if files else ""
+        return ""
+
     def pick_normative(_=None):
-        path, _ = QFileDialog.getOpenFileName(
-            None, "Нормативная база", str(NORMATIVE_DIR),
+        path = _open_file_dialog(
+            "Нормативная база", str(NORMATIVE_DIR),
             "Документы (*.xlsx *.xls *.docx *.pdf *.txt)",
         )
         if path:
             set_normative_file(path)
 
     def pick_client(_=None):
-        path, _ = QFileDialog.getOpenFileName(
-            None, "Файл клиента", str(UPLOADS_DIR),
+        path = _open_file_dialog(
+            "Файл клиента", str(UPLOADS_DIR),
             "Документы (*.xlsx *.xls *.docx *.pdf)",
         )
         if path:
@@ -118,7 +127,13 @@ def DocumentAssistantApp(self):
             UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
             src = Path(client_file)
             dst = UPLOADS_DIR / src.name
-            await asyncio.to_thread(shutil.copy2, src, dst)
+            try:
+                await asyncio.to_thread(shutil.copy2, src, dst)
+            except PermissionError:
+                raise RuntimeError(
+                    f"Файл '{src.name}' открыт в другой программе. "
+                    "Закройте его и попробуйте снова."
+                )
             container_path = f"{CONTAINER_UPLOADS}/{src.name}"
 
             est = await asyncio.to_thread(_estimate_seconds, dst)
@@ -179,13 +194,18 @@ def DocumentAssistantApp(self):
     norm_label   = Path(normative_file).name if normative_file else "Не выбрана"
     client_label = Path(client_file).name    if client_file    else "Не выбран"
 
-    with Window(title="Document Assistant",
+    with Window(title="ДМС-ассистент",
                 style={"background-color": _BG, "min-width": "700px", "min-height": "520px"}):
         with VBoxView(style={"background-color": _BG, "padding": "24px"}):
 
-            Label(text="Document Assistant",
-                  style={"color": _WHITE, "font-size": "20px",
-                         "font-weight": "bold", "margin-bottom": "20px"})
+            with HBoxView(style={"margin-bottom": "20px", "align": "left"}):
+                if _LOGO_PATH.exists():
+                    edifice.Image(src=str(_LOGO_PATH),
+                                  style={"width": "48px", "height": "48px",
+                                         "margin-right": "14px"})
+                Label(text="ДМС-ассистент",
+                      style={"color": _WHITE, "font-size": "20px",
+                             "font-weight": "bold"})
 
             # Normative base
             with VBoxView(style=card()):

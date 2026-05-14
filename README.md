@@ -1,10 +1,20 @@
 # Document Assistant
 
-Сервис для автоматической обработки клиентских запросов по страхованию.
+Сервис для автоматической обработки клиентских запросов по страхованию ДМС.
 
 Клиент присылает документ (Excel или Word) с перечнем необходимых страховых услуг.
 Сервис сопоставляет их с нормативной базой страховых программ, анализирует каждое требование
 и возвращает структурированный ответ с отметками «Есть / Нет / Частично».
+
+---
+
+## Компоненты
+
+| Компонент | Описание |
+|---|---|
+| `main.py` | FastAPI-сервер, эндпоинт `POST /api/update` |
+| `app/main.py` | Десктопное GUI-приложение «ВСК ДМС-ассистент» (PyEdifice + PySide6) |
+| `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) + опциональный `ollama` (:11434) |
 
 ---
 
@@ -33,7 +43,7 @@ POST /api/update
        │       └── InsuranceReport.merge() — объединяет ответы по всем чанкам
        │
        └── ReportExport                — сохраняет результат в формате клиента
-               ├── ExcelReportWriter   — .xlsx
+               ├── ExcelReportWriter   — .xlsx (копирует исходник, пишет в столбцы 2-4)
                └── WordReportWriter    — .docx
 ```
 
@@ -51,14 +61,37 @@ client.xlsx / client.docx / client.pdf
 [chunk1, chunk2, ..., chunkN]
        ↓  для каждого чанка: PromptEngine.build()
 Промты с нормативной базой (RAG через ContextBuilder)
-       ↓  AIModel.response()  ×N  (параллельно или последовательно)
+       ↓  AIModel.response()  ×N  (последовательно, синхронный эндпоинт)
 Сырые ответы LLM  (N строк-ответов)
        ↓  PostProcessor → InsuranceReport.merge()
 Итоговый InsuranceReport  (все строки объединены в порядке чанков)
        ↓  ReportExport
-client_ответ.xlsx  —  исходный файл + 3 новых столбца
+client_ответ.xlsx  —  исходный файл + 3 новых столбца (2, 3, 4)
 client_ответ.docx  —  новый файл с таблицей (для Word/PDF/прочих)
 ```
+
+---
+
+## Жизненный цикл нормативной базы
+
+**При старте FastAPI ничего не загружается в память.** `settings = Settings()` читает только `.env` — запоминает путь, не сам файл.
+
+При каждом запросе `POST /api/update` вся цепочка строится заново:
+
+```
+_build_service(request)
+  └─ PromptEngine.__init__()
+       └─ NormativeBaseLoader.load(NORMATIVE_BASE)   ← читает с диска
+       └─ NormativeIndex(text)                        ← индексирует в память
+  └─ DataParser(file_path)                            ← читает клиентский файл
+```
+
+Это значит:
+- **Смена нормативной базы** вступает в силу немедленно при следующем запросе — перезапуск сервера не нужен.
+- **`NORMATIVE_BASE` — директория**: `NormativeBaseLoader` читает все файлы в ней и конкатенирует. Если туда скопировать новый файл, не удалив старый, оба попадут в промт.
+- **`NORMATIVE_BASE` — файл**: перезаписи конкретного файла достаточно.
+
+GUI-приложение копирует выбранный нормативный файл в директорию `normative_base/`. Чтобы замена работала корректно, используйте одно и то же имя файла при обновлении базы.
 
 ---
 
@@ -127,8 +160,47 @@ PromptEngine.build(chunk)
 | Провайдер | Переменная бюджета | Типовое значение |
 |---|---|---|
 | Ollama | `LLM_NUM_CTX` | 32 768 токенов |
-| Gemini | `GEMINI_NUM_CTX` | 500 000 символов |
+| Gemini | `GEMINI_NUM_CTX` | 1 000 000 токенов |
 | Anthropic | `ANTHROPIC_NUM_CTX` | 200 000 токенов |
+
+---
+
+## Сопоставление строк в Excel (ExcelReportWriter)
+
+При записи ответа в `.xlsx` результаты LLM сопоставляются с исходными строками по тексту,
+а не по позиции — это защищает от сдвига при пропуске строк моделью.
+
+Алгоритм поиска строки (три уровня):
+
+```
+1. Точное совпадение нормализованного текста
+2. Один текст является префиксом другого (≥ 10 символов)
+3. Jaccard-перекрытие слов ≥ 75 % (при ≥ 3 словах в запросе)
+```
+
+Аннотации пишутся в столбцы 2, 3, 4 на каждом листе, где были найдены совпадения.
+Многолистовые файлы поддерживаются: индекс строк строится глобально по всем листам.
+
+---
+
+## GUI-приложение (ВСК ДМС-ассистент)
+
+Локальное десктопное приложение на PyEdifice + PySide6.
+
+```bash
+cd app
+pip install -r requirements.txt
+python main.py
+```
+
+**Функциональность:**
+- Выбор файла нормативной базы (копируется в `normative_base/`)
+- Выбор файла клиента (копируется в `uploads/`)
+- Кнопка «Подготовить» — отправляет запрос на `http://localhost:8001/api/update`
+- Прогресс-бар с оценкой времени (на основе количества строк в Excel)
+- Кнопка «Открыть результат» появляется после завершения обработки
+
+Приложение ожидает запущенный FastAPI-контейнер на порту 8001.
 
 ---
 
@@ -157,6 +229,12 @@ docker compose up -d
 docker exec ollama ollama pull qwen2.5:7b      # тест на CPU
 # или
 docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
+```
+
+### 4. Запустить GUI
+
+```bash
+cd app && python main.py
 ```
 
 ---
@@ -195,7 +273,7 @@ docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
 
 | Переменная | Обязательная | По умолчанию | Описание |
 |---|---|---|---|
-| `NORMATIVE_BASE` | Да | — | Путь к нормативной базе (файл или папка) |
+| `NORMATIVE_BASE` | Да | — | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
 | `EXAMPLES_PATH` | Нет | `""` | Путь к папке с примерами few-shot |
 | `AI_PROVIDER` | Нет | `ollama` | `ollama` / `gemini` / `anthropic` |
 | `AI_TEMPERATURE` | Нет | `0.2` | Температура генерации |
@@ -208,12 +286,12 @@ docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
 | **Ollama** | | | |
 | `LLM_BASE_URL` | Ollama | `http://ollama:11434` | Адрес Ollama (Docker или GPU-сервер) |
 | `LLM_MODEL_NAME` | Ollama | `qwen2.5:7b` | Модель Ollama |
-| `LLM_NUM_CTX` | Ollama | `32768` | Контекстное окно в токенах (передаётся в ContextBuilder) |
+| `LLM_NUM_CTX` | Ollama | `32768` | Контекстное окно в токенах |
 | `LLM_MAX_SECTIONS` | Все | `15` | Максимум разделов нормативной базы в одном промте (RAG-лимит) |
 | **Gemini** | | | |
 | `GEMINI_API_KEY` | Gemini | — | API-ключ Google Gemini |
 | `AI_MODEL_NAME` | Gemini | `gemini-2.0-flash` | Модель Gemini |
-| `GEMINI_NUM_CTX` | Gemini | `1000000` | Бюджет символов для нормативной базы в ContextBuilder |
+| `GEMINI_NUM_CTX` | Gemini | `1000000` | Бюджет токенов для нормативной базы в ContextBuilder |
 | **Anthropic** | | | |
 | `ANTHROPIC_API_KEY` | Anthropic | — | API-ключ Anthropic |
 | `ANTHROPIC_MODEL_NAME` | Anthropic | `claude-sonnet-4-6` | Модель Anthropic |
@@ -256,7 +334,7 @@ GEMINI_API_KEY=...
 AI_MODEL_NAME=gemini-2.5-flash-lite
 LLM_MAX_CHARS=400000
 LLM_BATCH_SIZE=25
-GEMINI_NUM_CTX=500000   # ограничивает нормативную базу в промте
+GEMINI_NUM_CTX=500000
 LLM_MAX_SECTIONS=2
 ```
 
@@ -336,9 +414,13 @@ document_assistant/
   reports/
     report_models.py    — InsuranceReport, ReportRow
     report_export.py    — ReportExport
-    writers.py          — ExcelReportWriter, WordReportWriter
+    writers.py          — ExcelReportWriter (multi-sheet, text matching), WordReportWriter
   services/
     assistant.py        — AIAssistantService
+app/
+  main.py               — GUI «ВСК ДМС-ассистент» (PyEdifice + PySide6)
+  assets/               — иконки и изображения
+  requirements.txt      — зависимости GUI
 main.py                 — FastAPI приложение
 docker-compose.yaml
 .env
