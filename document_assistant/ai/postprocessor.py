@@ -29,7 +29,14 @@ class PostProcessor:
 
         return InsuranceReport(rows=rows, summary=summary, raw_text=raw_text)
 
+    _SUMMARY_RE = re.compile(r"^#{1,3}\s*(Резюме|Вывод|Summary)", re.MULTILINE | re.IGNORECASE)
+
     def _parse_table(self, text: str) -> list[ReportRow]:
+        # Truncate at résumé heading so its tables are not parsed as data rows
+        summary_match = self._SUMMARY_RE.search(text)
+        if summary_match:
+            text = text[:summary_match.start()]
+
         all_row_matches = self._ROW_RE.findall(text)
         if not all_row_matches:
             return []

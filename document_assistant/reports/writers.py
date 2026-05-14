@@ -71,12 +71,16 @@ class ExcelReportWriter(ReportWriter):
         return output_path
 
     def _write_annotated(self, report: InsuranceReport, output_path: Path, source_path: Path) -> Path:
-        """Copy source file and append 3 annotation columns."""
+        """Copy source file and write 3 annotation columns to all sheets.
+
+        Rows are matched by text content across all worksheets so that:
+        - rows skipped/merged by the LLM do not shift subsequent annotations
+        - multi-sheet Excel files are handled correctly
+        """
         shutil.copy2(source_path, output_path)
         wb = load_workbook(output_path)
-        ws = wb.active
 
-        last_col = ws.max_column
+        ann_col = 2
         new_headers = ["Покрытие по программе", "Статус", "Комментарий"]
 
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -86,33 +90,106 @@ class ExcelReportWriter(ReportWriter):
         thin = Side(style="thin", color="CCCCCC")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        for i, title in enumerate(new_headers):
-            col = last_col + 1 + i
-            cell = ws.cell(row=1, column=col, value=title)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center
-            ws.column_dimensions[cell.column_letter].width = [45, 14, 50][i]
+        # Build global index across ALL sheets: norm_text → (worksheet, row_idx)
+        global_index: dict[str, tuple] = {}
+        total_source_rows = 0
+        for ws in wb.worksheets:
+            for row_idx in range(2, ws.max_row + 1):
+                val = ws.cell(row=row_idx, column=1).value
+                if val:
+                    key = self._norm(str(val))
+                    if key not in global_index:  # first sheet wins on collision
+                        global_index[key] = (ws, row_idx)
+                        total_source_rows += 1
 
-        for row_idx, row in enumerate(report.rows, start=2):
-            cov_cell = ws.cell(row=row_idx, column=last_col + 1, value=row.program_coverage)
+        # Write each LLM response to its matched sheet+row
+        matched = 0
+        sheets_touched: set = set()
+        for row in report.rows:
+            result = self._find_row_global(row.client_requirement, global_index)
+            if result is None:
+                continue
+            matched += 1
+            ws, row_idx = result
+            sheets_touched.add(ws)
+
+            cov_cell = ws.cell(row=row_idx, column=ann_col, value=row.program_coverage)
             cov_cell.alignment = wrap
             cov_cell.border = border
 
-            status_cell = ws.cell(row=row_idx, column=last_col + 2, value=row.status)
+            status_cell = ws.cell(row=row_idx, column=ann_col + 1, value=row.status)
             status_cell.fill = PatternFill("solid", fgColor=_status_fill(row.status))
             status_cell.alignment = wrap
             status_cell.border = border
 
-            comment_cell = ws.cell(row=row_idx, column=last_col + 3, value=row.comment)
+            comment_cell = ws.cell(row=row_idx, column=ann_col + 2, value=row.comment)
             comment_cell.alignment = wrap
             comment_cell.border = border
+
+        # Add annotation headers to every sheet that received annotations
+        for ws in sheets_touched:
+            for i, title in enumerate(new_headers):
+                col = ann_col + i
+                cell = ws.cell(row=1, column=col, value=title)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = center
+                ws.column_dimensions[cell.column_letter].width = [45, 14, 50][i]
+
+        print(
+            f"[INFO] Аннотировано {matched}/{len(report.rows)} строк LLM "
+            f"из {total_source_rows} строк оригинала "
+            f"({len(sheets_touched)} лист(ов))",
+            flush=True,
+        )
 
         if report.summary:
             self._write_summary_sheet(wb, report.summary)
 
         wb.save(output_path)
         return output_path
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        """Normalise requirement text for matching: lowercase, collapse spaces."""
+        return " ".join(text.lower().split())
+
+    @staticmethod
+    def _words(text: str) -> set[str]:
+        import re as _re
+        return set(w for w in _re.split(r"\W+", text.lower()) if len(w) > 2)
+
+    def _find_row_global(self, requirement: str, index: dict[str, tuple]) -> tuple | None:
+        """Find (worksheet, row_idx) by exact, prefix, or word-overlap match."""
+        key = self._norm(requirement)
+        if not key or len(key) < 5:
+            return None
+
+        # 1. Exact match
+        if key in index:
+            return index[key]
+
+        # 2. Prefix match (handles LLM truncation in either direction)
+        for orig_key, location in index.items():
+            if orig_key.startswith(key) or key.startswith(orig_key):
+                if len(key) >= 10:
+                    return location
+
+        # 3. Word-overlap ≥ 75% of the shorter text's words
+        key_words = self._words(key)
+        if len(key_words) < 3:
+            return None
+        best_score, best_loc = 0.0, None
+        for orig_key, location in index.items():
+            orig_words = self._words(orig_key)
+            if not orig_words:
+                continue
+            overlap = len(key_words & orig_words) / min(len(key_words), len(orig_words))
+            if overlap > best_score:
+                best_score, best_loc = overlap, location
+        if best_score >= 0.75:
+            return best_loc
+        return None
 
     def _write_header_row(self, ws) -> None:
         header_font = Font(bold=True, color="FFFFFF", size=11)
