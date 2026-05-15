@@ -103,14 +103,20 @@ class ExcelReportWriter(ReportWriter):
                         total_source_rows += 1
 
         # Write each LLM response to its matched sheet+row
+        # used_locations tracks already-annotated rows to prevent double-writes
         matched = 0
+        used_locations: set = set()
         sheets_touched: set = set()
         for row in report.rows:
             result = self._find_row_global(row.client_requirement, global_index)
             if result is None:
                 continue
-            matched += 1
             ws, row_idx = result
+            loc_key = (id(ws), row_idx)
+            if loc_key in used_locations:
+                continue
+            used_locations.add(loc_key)
+            matched += 1
             sheets_touched.add(ws)
 
             cov_cell = ws.cell(row=row_idx, column=ann_col, value=row.program_coverage)
@@ -160,7 +166,19 @@ class ExcelReportWriter(ReportWriter):
         return set(w for w in _re.split(r"\W+", text.lower()) if len(w) > 2)
 
     def _find_row_global(self, requirement: str, index: dict[str, tuple]) -> tuple | None:
-        """Find (worksheet, row_idx) by exact, prefix, or word-overlap match."""
+        """Find (worksheet, row_idx) by exact, suffix, prefix, or word-overlap match.
+
+        Matching levels (first hit wins):
+        1. Exact — normalized strings are equal.
+        2. Suffix — source key is the trailing part of the LLM key, separated by
+           a punctuation char.  Handles the common case where the LLM prepends
+           a section-header context to the actual sub-item text, e.g.
+           LLM: "Первичный…приёмы: аллерголог-иммунолог"
+           Source: "аллерголог-иммунолог"
+        3. Prefix — one string is a prefix of the other (LLM truncation).
+        4. Word-overlap ≥ 75 % — only for pairs whose word-count ratio is ≤ 3:1
+           to avoid false positives from long shared prefixes.
+        """
         key = self._norm(requirement)
         if not key or len(key) < 5:
             return None
@@ -169,13 +187,25 @@ class ExcelReportWriter(ReportWriter):
         if key in index:
             return index[key]
 
-        # 2. Prefix match (handles LLM truncation in either direction)
+        # 2. Suffix match: source row is a trailing portion of the LLM key
+        #    Threshold ≥ 6 catches short specialist names (e.g. "невролог" = 8 chars)
         for orig_key, location in index.items():
-            if orig_key.startswith(key) or key.startswith(orig_key):
-                if len(key) >= 10:
-                    return location
+            if len(orig_key) >= 6 and len(orig_key) < len(key):
+                if key.endswith(orig_key):
+                    sep_idx = len(key) - len(orig_key) - 1
+                    if sep_idx < 0 or key[sep_idx] in (' ', ':', ',', ';', '.'):
+                        return location
 
-        # 3. Word-overlap ≥ 75% of the shorter text's words
+        # 3. Prefix match — only the direction where LLM truncated the source row
+        #    (orig starts with key).  The reverse direction (key starts with orig)
+        #    is excluded: that case means the LLM prepended section context, which
+        #    is already handled by the suffix match above.
+        for orig_key, location in index.items():
+            if orig_key.startswith(key) and len(key) >= 10:
+                return location
+
+        # 4. Word-overlap ≥ 75 % — skip pairs where one text has 3× more words
+        #    than the other; those share a common prefix and would cause false matches
         key_words = self._words(key)
         if len(key_words) < 3:
             return None
@@ -184,7 +214,11 @@ class ExcelReportWriter(ReportWriter):
             orig_words = self._words(orig_key)
             if not orig_words:
                 continue
-            overlap = len(key_words & orig_words) / min(len(key_words), len(orig_words))
+            shorter = min(len(key_words), len(orig_words))
+            longer  = max(len(key_words), len(orig_words))
+            if longer > 3 * shorter:   # extreme length mismatch → skip
+                continue
+            overlap = len(key_words & orig_words) / shorter
             if overlap > best_score:
                 best_score, best_loc = overlap, location
         if best_score >= 0.75:

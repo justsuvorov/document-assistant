@@ -12,7 +12,8 @@ from edifice import (
     Label, Button, ProgressBar,
     use_state, use_async_call,
 )
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QApplication
+from PySide6.QtGui import QFontDatabase, QFont
 
 # ── Path config ───────────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ def _estimate_seconds(path: Path) -> int:
         chunks = max(1, (rows + 24) // 25)
     except Exception:
         chunks = 10
-    return chunks * 15
+    return chunks * 30
 
 
 def _fmt(seconds: int) -> str:
@@ -56,14 +57,14 @@ def card():
             "padding": "14px", "margin-bottom": "10px"}
 
 def label_s():
-    return {"color": _MUTED, "font-size": "12px"}
+    return {"color": _MUTED, "font-size": "13px"}
 
 def value_s():
     return {"color": _WHITE, "font-size": "13px"}
 
 def btn(color=_BLUE):
     return {"background-color": color, "color": _WHITE,
-            "border-radius": "6px", "padding": "8px 18px", "font-size": "13px"}
+            "border-radius": "6px", "padding": "12px 18px", "font-size": "13px"}
 
 # ── Component ─────────────────────────────────────────────────────────────────
 
@@ -263,4 +264,13 @@ def DocumentAssistantApp(self):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    App(DocumentAssistantApp()).start()
+    _edifice_app = App(DocumentAssistantApp())
+    _font_path = Path(__file__).parent / "assets" / "GPN_DIN_Condensed-Regular.ttf"
+    _qapp = QApplication.instance()
+    if _qapp and _font_path.exists():
+        _font_id = QFontDatabase.addApplicationFont(str(_font_path))
+        if _font_id != -1:
+            _family = QFontDatabase.applicationFontFamilies(_font_id)[0]
+            _qapp.setFont(QFont(_family, 11))
+            _qapp.setStyleSheet(f"* {{ font-family: '{_family}'; }}")
+    _edifice_app.start()
