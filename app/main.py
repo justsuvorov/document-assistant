@@ -9,7 +9,7 @@ import edifice
 from edifice import (
     App, Window,
     VBoxView, HBoxView,
-    Label, Button, ProgressBar,
+    Label, Button, ProgressBar, Slider,
     use_state, use_async_call,
 )
 from PySide6.QtWidgets import QFileDialog, QApplication
@@ -22,25 +22,21 @@ UPLOADS_DIR       = PROJECT_DIR / "uploads"
 NORMATIVE_DIR     = PROJECT_DIR / "normative_base"
 CONTAINER_UPLOADS = "/app/uploads"
 API_URL           = "http://localhost:8001/api/update"
+API_ESTIMATE_URL  = "http://localhost:8001/api/estimate"
 _LOGO_PATH        = PROJECT_DIR / "app" / "assets" / "vsk_logo.png"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _estimate_seconds(path: Path) -> int:
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(str(path), read_only=True)
-        rows = max(0, (wb.active.max_row or 1) - 1)
-        wb.close()
-        chunks = max(1, (rows + 24) // 25)
-    except Exception:
-        chunks = 10
-    return chunks * 45
-
-
 def _fmt(seconds: int) -> str:
     m, s = divmod(abs(seconds), 60)
     return f"{m}:{s:02d}"
+
+def _fmt_long(seconds: int) -> str:
+    h, rem = divmod(abs(seconds), 3600)
+    m = rem // 60
+    if h > 0:
+        return f"~{h} ч {m} мин"
+    return f"~{m} мин"
 
 # ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +47,7 @@ _WHITE = "#ffffff"
 _BLUE  = "#1a6fa8"
 _DIM   = "#4a5560"
 _GREEN = "#1a7a4a"
+_ORANGE = "#c47a1e"
 
 def card():
     return {"background-color": _CARD, "border-radius": "8px",
@@ -73,11 +70,16 @@ def DocumentAssistantApp(self):
     normative_file, set_normative_file = use_state("")
     client_file,    set_client_file    = use_state("")
     status,         set_status         = use_state("Готов к работе")
-    progress,       set_progress       = use_state(0)       # 0–100 int
+    progress,       set_progress       = use_state(0)
     elapsed,        set_elapsed        = use_state(0)
     estimated,      set_estimated      = use_state(0)
     result_file,    set_result_file    = use_state("")
     processing,     set_processing     = use_state(False)
+
+    # Estimate state
+    estimate_data,  set_estimate_data  = use_state(None)   # {chunk_count, estimated_seconds}
+    estimating,     set_estimating     = use_state(False)
+    chunks_pct,     set_chunks_pct     = use_state(100)    # slider 10–100
 
     # ── Callbacks ─────────────────────────────────────────────────────────
 
@@ -96,6 +98,7 @@ def DocumentAssistantApp(self):
         )
         if path:
             set_normative_file(path)
+            set_estimate_data(None)
 
     def pick_client(_=None):
         path = _open_file_dialog(
@@ -104,6 +107,46 @@ def DocumentAssistantApp(self):
         )
         if path:
             set_client_file(path)
+            set_estimate_data(None)
+            set_chunks_pct(100)
+
+    async def _estimate_async():
+        if not client_file:
+            set_status("Выберите файл клиента")
+            return
+
+        set_estimating(True)
+        set_status("Анализ файла...")
+        try:
+            # Copy client file to uploads so FastAPI can read it
+            UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            src = Path(client_file)
+            dst = UPLOADS_DIR / src.name
+            await asyncio.to_thread(shutil.copy2, src, dst)
+            container_path = f"{CONTAINER_UPLOADS}/{src.name}"
+
+            resp = await asyncio.to_thread(
+                requests.post, API_ESTIMATE_URL,
+                json={"file_path": container_path},
+                timeout=60,
+            )
+            if resp.ok:
+                data = resp.json()
+                set_estimate_data(data)
+                set_chunks_pct(100)
+                set_status("Готов к работе")
+            else:
+                set_status(f"Ошибка оценки: {resp.text[:100]}")
+        except Exception as exc:
+            set_status(f"Ошибка: {str(exc)[:200]}")
+        finally:
+            set_estimating(False)
+
+    estimate_call, _ = use_async_call(_estimate_async)
+
+    def on_estimate(_=None):
+        if not estimating and not processing:
+            estimate_call()
 
     async def _process_async():
         if not client_file:
@@ -118,13 +161,11 @@ def DocumentAssistantApp(self):
         set_status("Копирование файлов...")
 
         try:
-            # Copy normative base if new file selected (in thread — blocking IO)
             if normative_file:
                 src = Path(normative_file)
                 NORMATIVE_DIR.mkdir(parents=True, exist_ok=True)
                 await asyncio.to_thread(shutil.copy2, src, NORMATIVE_DIR / src.name)
 
-            # Copy client file
             UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
             src = Path(client_file)
             dst = UPLOADS_DIR / src.name
@@ -137,19 +178,27 @@ def DocumentAssistantApp(self):
                 )
             container_path = f"{CONTAINER_UPLOADS}/{src.name}"
 
-            est = await asyncio.to_thread(_estimate_seconds, dst)
-            set_estimated(est)
-            set_status(f"Обработка... (≈{_fmt(est)})")
+            # Calculate max_chunks from slider and estimate
+            max_chunks = 0
+            est_secs = 0
+            if estimate_data:
+                full_chunks = estimate_data["chunk_count"]
+                max_chunks = max(1, round(full_chunks * chunks_pct / 100))
+                est_secs = estimate_data["estimated_seconds"] * chunks_pct // 100
+            else:
+                est_secs = 600  # fallback
+
+            set_estimated(est_secs)
+            set_status(f"Обработка... (≈{_fmt_long(est_secs)})")
 
             t0 = time.time()
 
-            # Ticker task — updates progress every second on the event loop
             async def tick():
                 while True:
                     await asyncio.sleep(1)
                     el = int(time.time() - t0)
                     set_elapsed(el)
-                    set_progress(min(95, int(el * 100 / max(est, 1))))
+                    set_progress(min(95, int(el * 100 / max(est_secs, 1))))
 
             tick_task = asyncio.create_task(tick())
 
@@ -157,7 +206,7 @@ def DocumentAssistantApp(self):
                 resp = await asyncio.to_thread(
                     requests.post, API_URL,
                     json={"request_id": int(t0), "file_path": container_path,
-                          "user_name": "gui_user"},
+                          "user_name": "gui_user", "max_chunks": max_chunks},
                     timeout=3600,
                 )
             finally:
@@ -169,7 +218,7 @@ def DocumentAssistantApp(self):
                 out_name = Path(resp.json()["output_file"]).name
                 set_result_file(str(UPLOADS_DIR / out_name))
                 set_progress(100)
-                set_status(f"Готово за {_fmt(elapsed_total)}")
+                set_status(f"Готово за {_fmt_long(elapsed_total)}")
             else:
                 set_status(f"Ошибка {resp.status_code}: {resp.text[:100]}")
                 set_progress(0)
@@ -195,8 +244,15 @@ def DocumentAssistantApp(self):
     norm_label   = Path(normative_file).name if normative_file else "Не выбрана"
     client_label = Path(client_file).name    if client_file    else "Не выбран"
 
+    # Derived estimate values for current slider position
+    shown_chunks = 0
+    shown_time   = 0
+    if estimate_data:
+        shown_chunks = max(1, round(estimate_data["chunk_count"] * chunks_pct / 100))
+        shown_time   = estimate_data["estimated_seconds"] * chunks_pct // 100
+
     with Window(title="ДМС-ассистент",
-                style={"background-color": _BG, "min-width": "700px", "min-height": "520px"}):
+                style={"background-color": _BG, "min-width": "700px", "min-height": "580px"}):
         with VBoxView(style={"background-color": _BG, "padding": "24px"}):
 
             with HBoxView(style={"margin-bottom": "20px", "align": "left"}):
@@ -230,6 +286,35 @@ def DocumentAssistantApp(self):
                     Button(title="Выбрать", on_click=pick_client,
                            style=btn())
 
+            # Estimate button
+            if client_file and not processing:
+                Button(
+                    title="Анализирую..." if estimating else "Оценить время работы",
+                    on_click=on_estimate,
+                    style={**btn(_DIM if estimating else _ORANGE),
+                           "margin-bottom": "10px"},
+                )
+
+            # Estimate result + slider
+            if estimate_data:
+                with VBoxView(style=card()):
+                    Label(text="Оценка обработки",
+                          style={**label_s(), "margin-bottom": "8px"})
+                    with HBoxView(style={"margin-bottom": "10px"}):
+                        Label(text=f"Чанков: {shown_chunks} из {estimate_data['chunk_count']}",
+                              style={**value_s(), "margin-right": "24px"})
+                        Label(text=f"Время: {_fmt_long(shown_time)}",
+                              style=value_s())
+                    Slider(
+                        value=chunks_pct,
+                        min_value=1,
+                        max_value=100,
+                        on_change=lambda v: set_chunks_pct(v),
+                        style={"margin-bottom": "4px"},
+                    )
+                    Label(text=f"{chunks_pct}% документа",
+                          style=label_s())
+
             # Process button
             Button(
                 title="Обработка..." if processing else "Подготовить",
@@ -251,7 +336,7 @@ def DocumentAssistantApp(self):
                     with HBoxView():
                         Label(text=f"Прошло: {_fmt(elapsed)}",
                               style={**label_s(), "margin-right": "24px"})
-                        Label(text=f"Ожидаемое: {_fmt(estimated)}",
+                        Label(text=f"Ожидаемое: {_fmt_long(estimated)}",
                               style=label_s())
 
             # Result button

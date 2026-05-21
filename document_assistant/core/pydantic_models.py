@@ -18,3 +18,9 @@ class APIRequest(BaseModel):
     user_name: Optional[str] = Field(None, description="Имя пользователя (опционально)")
     file_path: str = Field(..., description="Путь к файлу")
     priority: int = Field(0, description="Приоритет обработки")
+    max_chunks: int = Field(0, description="Максимальное число чанков (0 = из настроек)")
+
+
+class EstimateRequest(BaseModel):
+    """Запрос оценки времени обработки файла."""
+    file_path: str = Field(..., description="Путь к файлу клиента в контейнере")

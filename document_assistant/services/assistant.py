@@ -23,10 +23,11 @@ class AIAssistantService:
         self._model = ai_model
         self._report_export = report_export
 
-    def result(self) -> dict:
+    def result(self, max_chunks_override: int = 0) -> dict:
         queries = self._preprocessor.queries()
-        if settings.llm_max_chunks > 0:
-            queries = queries[:settings.llm_max_chunks]
+        limit = max_chunks_override if max_chunks_override > 0 else settings.llm_max_chunks
+        if limit > 0:
+            queries = queries[:limit]
         print(f"[INFO] Обработка {len(queries)} чанков", flush=True)
 
         reports = []

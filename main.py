@@ -5,10 +5,10 @@ from fastapi.responses import JSONResponse
 from document_assistant.ai.encoders import TextEncoder
 from document_assistant.ai.model import ModelFactory
 from document_assistant.ai.postprocessor import PostProcessor
-from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask
+from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
 from document_assistant.ai.promt_builders import PromptEngine
 from document_assistant.core.parsers import DataParser
-from document_assistant.core.pydantic_models import APIRequest, RebuildRequest
+from document_assistant.core.pydantic_models import APIRequest, EstimateRequest, RebuildRequest
 from document_assistant.core.settings import settings
 from document_assistant.reports.report_export import ReportExport
 from document_assistant.services.assistant import AIAssistantService
@@ -51,10 +51,28 @@ def _build_service(request: APIRequest) -> AIAssistantService:
     )
 
 
+@app.post("/api/estimate")
+def estimate(request: EstimateRequest):
+    """Оценить количество чанков и время обработки без вызова LLM."""
+    try:
+        raw = DataParser(request.file_path).origin_data(request.file_path)
+        encoded = TextEncoder().prepared_data(raw)
+        chunks = DocumentChunker(batch_size=settings.llm_batch_size).split(encoded)
+        chunk_count = len(chunks)
+        return {
+            "chunk_count": chunk_count,
+            "estimated_seconds": chunk_count * 120,
+            "total_chars": len(raw),
+            "processed_chars": len(encoded),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/update")
 def submit(request: APIRequest):
     ai = _build_service(request)
-    result = ai.result()
+    result = ai.result(max_chunks_override=request.max_chunks)
     return JSONResponse(content=jsonable_encoder(result))
 
 
