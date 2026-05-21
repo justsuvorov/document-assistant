@@ -12,7 +12,7 @@
 
 | Компонент | Описание |
 |---|---|
-| `main.py` | FastAPI-сервер, эндпоинт `POST /api/update` |
+| `main.py` | FastAPI-сервер, эндпоинты `/api/update`, `/api/estimate`, `/api/rebuild` |
 | `app/main.py` | Десктопное GUI-приложение «ВСК ДМС-ассистент» (PyEdifice + PySide6) |
 | `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) + опциональный `ollama` (:11434) |
 
@@ -37,7 +37,7 @@ POST /api/update
        ├── ModelFactory                — выбирает модель по AI_PROVIDER
        │       ├── OllamaModel         — локальный CPU или удалённый GPU-сервер
        │       ├── GeminiModel         — Google Gemini API (облако)
-       │       └── AnthropicModel      — Anthropic Claude API (облако)
+       │       └── AnthropicModel      — Anthropic Claude API (облако, с retry по retry-after)
        │
        ├── PostProcessor               — парсит ответ LLM → InsuranceReport
        │       └── InsuranceReport.merge() — объединяет ответы по всем чанкам
@@ -53,18 +53,19 @@ POST /api/update
 
 ```
 client.xlsx / client.docx / client.pdf
-       ↓  DataParser
+       ↓  DataParser  (newlines в ячейках → пробел)
 Сырой текст
        ↓  TextEncoder  (обрезка до LLM_MAX_CHARS символов)
 Нормализованный текст
        ↓  DocumentChunker  (стратегия — см. раздел ниже)
-[chunk1, chunk2, ..., chunkN]
+[chunk1, chunk2, ..., chunkN]  ← ограничивается max_chunks если задан
        ↓  для каждого чанка: PromptEngine.build()
 Промты с нормативной базой (RAG через ContextBuilder)
-       ↓  AIModel.response()  ×N  (последовательно, синхронный эндпоинт)
-Сырые ответы LLM  (N строк-ответов)
+       ↓  AIModel.response()  ×N  (с retry при 429/503)
+Сырые ответы LLM
+       ↓  сохраняются в *_llm_debug.md и *_llm_output.json
        ↓  PostProcessor → InsuranceReport.merge()
-Итоговый InsuranceReport  (все строки объединены в порядке чанков)
+Итоговый InsuranceReport
        ↓  ReportExport
 client_ответ.xlsx  —  исходный файл + 3 новых столбца (2, 3, 4)
 client_ответ.docx  —  новый файл с таблицей (для Word/PDF/прочих)
@@ -103,8 +104,18 @@ GUI-приложение копирует выбранный нормативн�
 | `AI_PROVIDER` | Класс | Когда использовать |
 |---|---|---|
 | `ollama` | `OllamaModel` | Локальный CPU-тест или GPU-сервер с Qwen |
-| `gemini` | `GeminiModel` | Облако, быстрое тестирование |
+| `gemini` | `GeminiModel` | Облако, самый быстрый и дешёвый вариант |
 | `anthropic` | `AnthropicModel` | Облако, высокое качество |
+
+### Сравнение облачных моделей (полный прогон, ~64 чанка)
+
+| Модель | Стоимость | Время | Rate limit T1 |
+|---|---|---|---|
+| Claude Sonnet 4.6 | ~$10–12 | ~3.5 ч | 30k TPM |
+| Claude Haiku 4.5 | ~$2–3 | ~1.5 ч | ~50k TPM |
+| Gemini 2.0 Flash | ~$0.3 | ~10 мин | высокий |
+
+`AnthropicModel` поддерживает автоматический retry при 429 с использованием заголовка `retry-after` из ответа API (до 5 попыток).
 
 ---
 
@@ -133,10 +144,10 @@ GUI-приложение копирует выбранный нормативн�
        └─ 4. Fallback  — весь документ как один чанк
 ```
 
+**Важно:** ячейки Excel с переносами строк (`\n`) нормализуются в пробел при парсинге — иначе строки таблицы выходят многострочными и батчинг не срабатывает.
+
 Каждый чанк обрабатывается отдельным запросом к LLM. Ответы объединяются в правильном порядке
 через `InsuranceReport.merge()`.
-
-Для отладки при каждом запросе создаётся файл `<имя_клиента>_debug.md` рядом с исходником.
 
 ---
 
@@ -155,6 +166,7 @@ PromptEngine.build(chunk)
             Jaccard-scoring по ключевым словам чанка
             Берём топ LLM_MAX_SECTIONS наиболее релевантных разделов
             Возвращаем только их (RAG)
+            Fallback: если ни один не влезает → обрезаем первый до бюджета
 ```
 
 | Провайдер | Переменная бюджета | Типовое значение |
@@ -170,16 +182,45 @@ PromptEngine.build(chunk)
 При записи ответа в `.xlsx` результаты LLM сопоставляются с исходными строками по тексту,
 а не по позиции — это защищает от сдвига при пропуске строк моделью.
 
-Алгоритм поиска строки (три уровня):
+Алгоритм поиска строки (четыре уровня, первое совпадение используется):
 
 ```
 1. Точное совпадение нормализованного текста
-2. Один текст является префиксом другого (≥ 10 символов)
-3. Jaccard-перекрытие слов ≥ 75 % (при ≥ 3 словах в запросе)
+2. Суффиксное совпадение — источник является хвостом LLM-строки после разделителя
+   (: , ; .) — решает случай "Первичные приёмы: аллерголог-иммунолог" → "аллерголог-иммунолог"
+3. Префиксное совпадение — источник начинается с LLM-строки (≥ 10 символов)
+4. Jaccard-перекрытие слов ≥ 75 % при соотношении длин ≤ 3:1
 ```
 
+Дедупликация: каждая исходная строка аннотируется не более одного раза (`used_locations`).
+Объединённые ячейки (`MergedCell`) пропускаются при записи.
 Аннотации пишутся в столбцы 2, 3, 4 на каждом листе, где были найдены совпадения.
 Многолистовые файлы поддерживаются: индекс строк строится глобально по всем листам.
+
+---
+
+## Кэширование ответов LLM
+
+После каждой обработки создаются два файла рядом с исходником:
+
+- `*_llm_debug.md` — сырые ответы по чанкам в читаемом виде (для отладки и переобработки)
+- `*_llm_output.json` — структурированный JSON с метаданными (провайдер, модель, время, чанки)
+
+JSON-формат:
+```json
+{
+  "file_path": "/app/uploads/client.xlsx",
+  "processed_at": "2026-05-20T10:51:00+00:00",
+  "model": "claude-haiku-4-5-20251001",
+  "provider": "anthropic",
+  "chunks": [
+    {"index": 1, "raw_response": "...", "rows_parsed": 25},
+    ...
+  ]
+}
+```
+
+Для переобработки без повторного вызова LLM используется эндпоинт `/api/rebuild`.
 
 ---
 
@@ -188,16 +229,16 @@ PromptEngine.build(chunk)
 Локальное десктопное приложение на PyEdifice + PySide6.
 
 ```bash
-cd app
-pip install -r requirements.txt
-python main.py
+python app/main.py
 ```
 
 **Функциональность:**
 - Выбор файла нормативной базы (копируется в `normative_base/`)
 - Выбор файла клиента (копируется в `uploads/`)
-- Кнопка «Подготовить» — отправляет запрос на `http://localhost:8001/api/update`
-- Прогресс-бар с оценкой времени (на основе количества строк в Excel)
+- **Кнопка «Оценить время работы»** — анализирует файл через `/api/estimate`, показывает количество чанков и расчётное время
+- **Слайдер 1–100%** — ограничивает долю документа для обработки (уменьшает время)
+- Кнопка «Подготовить» — запускает обработку с учётом слайдера
+- Прогресс-бар с оценкой времени
 - Кнопка «Открыть результат» появляется после завершения обработки
 
 Приложение ожидает запущенный FastAPI-контейнер на порту 8001.
@@ -209,7 +250,6 @@ python main.py
 ### 1. Настроить `.env`
 
 ```bash
-cp .env.example .env   # если есть шаблон
 # или отредактировать .env напрямую
 ```
 
@@ -223,18 +263,10 @@ docker compose up -d
 - `api` — FastAPI на порту `8001`
 - `ollama` — Ollama HTTP API на порту `11434`
 
-### 3. Убедиться что нужная модель загружена в Ollama
+### 3. Запустить GUI
 
 ```bash
-docker exec ollama ollama pull qwen2.5:7b      # тест на CPU
-# или
-docker exec ollama ollama pull qwen2.5:72b     # GPU-сервер
-```
-
-### 4. Запустить GUI
-
-```bash
-cd app && python main.py
+python app/main.py
 ```
 
 ---
@@ -243,20 +275,20 @@ cd app && python main.py
 
 ### `POST /api/update`
 
-Принимает путь к файлу клиента, запускает обработку, возвращает путь к результату.
+Запускает обработку файла, возвращает путь к результату.
 
 **Тело запроса:**
-
 ```json
 {
   "request_id": 1,
   "file_path": "/app/uploads/client.xlsx",
-  "user_name": "Иванов И.И."
+  "user_name": "Иванов И.И.",
+  "max_chunks": 0
 }
 ```
+`max_chunks=0` — обработать все чанки (по умолчанию). Положительное число ограничивает обработку.
 
 **Ответ (200):**
-
 ```json
 {
   "request_id": 1,
@@ -265,47 +297,77 @@ cd app && python main.py
 }
 ```
 
-Выходной файл создаётся рядом с входным с суффиксом `_ответ`. Формат совпадает с входным.
+---
+
+### `POST /api/estimate`
+
+Анализирует файл без вызова LLM, возвращает оценку объёма и времени.
+
+**Тело запроса:**
+```json
+{ "file_path": "/app/uploads/client.xlsx" }
+```
+
+**Ответ (200):**
+```json
+{
+  "chunk_count": 62,
+  "estimated_seconds": 7440,
+  "total_chars": 2144067,
+  "processed_chars": 2144067
+}
+```
+
+---
+
+### `POST /api/rebuild`
+
+Собирает Excel из кэшированного JSON без повторного вызова LLM.
+Возвращает 422 если `json_path` и `file_path` относятся к разным файлам.
+
+**Тело запроса:**
+```json
+{
+  "request_id": 1,
+  "json_path": "/app/uploads/client_llm_output.json",
+  "file_path": "/app/uploads/client.xlsx",
+  "user_name": "Иванов И.И."
+}
+```
 
 ---
 
 ## Конфигурация
 
-| Переменная | Обязательная | По умолчанию | Описание |
-|---|---|---|---|
-| `NORMATIVE_BASE` | Да | — | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
-| `EXAMPLES_PATH` | Нет | `""` | Путь к папке с примерами few-shot |
-| `AI_PROVIDER` | Нет | `ollama` | `ollama` / `gemini` / `anthropic` |
-| `AI_TEMPERATURE` | Нет | `0.2` | Температура генерации |
-| `AI_ROLE` | Да | — | Системная роль модели |
-| `AI_PROMPT_TEMPLATE` | Да | — | Шаблон промта (`{role}`, `{normative_base}`, `{examples}`, `{source_text}`) |
-| **Разбивка и размер документа** | | | |
-| `LLM_MAX_CHARS` | Нет | `60000` | Максимум символов из клиентского файла перед разбивкой. Увеличьте до `400000` для больших таблиц. |
-| `LLM_BATCH_SIZE` | Нет | `25` | Строк в одном батче при разбивке таблицы (стратегия 3) |
-| `LLM_MAX_CHUNKS` | Нет | `0` | Лимит чанков для обработки (`0` = все). Полезно при отладке. |
-| **Ollama** | | | |
-| `LLM_BASE_URL` | Ollama | `http://ollama:11434` | Адрес Ollama (Docker или GPU-сервер) |
-| `LLM_MODEL_NAME` | Ollama | `qwen2.5:7b` | Модель Ollama |
-| `LLM_NUM_CTX` | Ollama | `32768` | Контекстное окно в токенах |
-| `LLM_MAX_SECTIONS` | Все | `15` | Максимум разделов нормативной базы в одном промте (RAG-лимит) |
-| **Gemini** | | | |
-| `GEMINI_API_KEY` | Gemini | — | API-ключ Google Gemini |
-| `AI_MODEL_NAME` | Gemini | `gemini-2.0-flash` | Модель Gemini |
-| `GEMINI_NUM_CTX` | Gemini | `1000000` | Бюджет токенов для нормативной базы в ContextBuilder |
-| **Anthropic** | | | |
-| `ANTHROPIC_API_KEY` | Anthropic | — | API-ключ Anthropic |
-| `ANTHROPIC_MODEL_NAME` | Anthropic | `claude-sonnet-4-6` | Модель Anthropic |
-| `ANTHROPIC_NUM_CTX` | Anthropic | `200000` | Бюджет токенов для нормативной базы в ContextBuilder |
-
-Многострочные значения в `.env` записываются в одну строку с `\n`:
-
-```env
-AI_PROMPT_TEMPLATE={role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_base}\n\n...
-```
+| Переменная | По умолчанию | Описание |
+|---|---|---|
+| `NORMATIVE_BASE` | — | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
+| `EXAMPLES_PATH` | `""` | Путь к папке с примерами few-shot |
+| `AI_PROVIDER` | `ollama` | `ollama` / `gemini` / `anthropic` |
+| `AI_TEMPERATURE` | `0.2` | Температура генерации |
+| `AI_ROLE` | — | Системная роль модели |
+| `AI_PROMPT_TEMPLATE` | — | Шаблон промта |
+| **Разбивка документа** | | |
+| `LLM_MAX_CHARS` | `60000` | Максимум символов из клиентского файла. Для больших таблиц — `2200000`. |
+| `LLM_BATCH_SIZE` | `25` | Строк в одном батче при разбивке таблицы |
+| `LLM_MAX_CHUNKS` | `0` | Лимит чанков (`0` = все). Для отладки или переопределяется через `max_chunks` в запросе. |
+| `LLM_MAX_SECTIONS` | `15` | Максимум разделов нормативной базы в промте (RAG-лимит) |
+| **Ollama** | | |
+| `LLM_BASE_URL` | `http://ollama:11434` | Адрес Ollama |
+| `LLM_MODEL_NAME` | `qwen2.5:7b` | Модель Ollama |
+| `LLM_NUM_CTX` | `32768` | Контекстное окно в токенах |
+| **Gemini** | | |
+| `GEMINI_API_KEY` | — | API-ключ Google Gemini |
+| `AI_MODEL_NAME` | `gemini-2.0-flash` | Модель Gemini |
+| `GEMINI_NUM_CTX` | `1000000` | Бюджет токенов для ContextBuilder |
+| **Anthropic** | | |
+| `ANTHROPIC_API_KEY` | — | API-ключ Anthropic |
+| `ANTHROPIC_MODEL_NAME` | `claude-sonnet-4-6` | Модель Anthropic |
+| `ANTHROPIC_NUM_CTX` | `200000` | Бюджет токенов для ContextBuilder |
 
 ### Типовые конфигурации
 
-**CPU-тест (локально, ограниченная мощность):**
+**CPU-тест (локально):**
 ```env
 AI_PROVIDER=ollama
 LLM_MODEL_NAME=qwen2.5:1.5b
@@ -313,39 +375,41 @@ LLM_NUM_CTX=4096
 LLM_MAX_CHARS=10000
 LLM_MAX_SECTIONS=2
 LLM_BATCH_SIZE=10
-LLM_MAX_CHUNKS=1        # обработать только первый чанк для проверки
+LLM_MAX_CHUNKS=1
 ```
 
-**GPU-сервер (production):**
+**Облако Anthropic Haiku (оптимум цена/качество):**
 ```env
-AI_PROVIDER=ollama
-LLM_BASE_URL=http://<server-ip>:11434
-LLM_MODEL_NAME=qwen2.5:72b
-LLM_NUM_CTX=131072
-LLM_MAX_CHARS=400000
-LLM_MAX_SECTIONS=15
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL_NAME=claude-haiku-4-5-20251001
+ANTHROPIC_NUM_CTX=200000
+LLM_MAX_CHARS=2200000
 LLM_BATCH_SIZE=25
+LLM_MAX_SECTIONS=10
+LLM_MAX_CHUNKS=0
 ```
 
-**Облако Gemini (рекомендуется для тестирования):**
-```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=...
-AI_MODEL_NAME=gemini-2.5-flash-lite
-LLM_MAX_CHARS=400000
-LLM_BATCH_SIZE=25
-GEMINI_NUM_CTX=500000
-LLM_MAX_SECTIONS=2
-```
-
-**Облако Anthropic (высокое качество):**
+**Облако Anthropic Sonnet (высокое качество):**
 ```env
 AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=...
 ANTHROPIC_MODEL_NAME=claude-sonnet-4-6
-LLM_MAX_CHARS=400000
-LLM_BATCH_SIZE=25
 ANTHROPIC_NUM_CTX=200000
+LLM_MAX_CHARS=2200000
+LLM_BATCH_SIZE=25
+LLM_MAX_SECTIONS=15
+LLM_MAX_CHUNKS=0
+```
+
+**Облако Gemini Flash (быстро и дёшево):**
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+AI_MODEL_NAME=gemini-2.0-flash
+LLM_MAX_CHARS=2200000
+LLM_BATCH_SIZE=25
+GEMINI_NUM_CTX=500000
 LLM_MAX_SECTIONS=15
 ```
 
@@ -363,21 +427,6 @@ LLM_MAX_SECTIONS=15
 
 ---
 
-## Примеры (few-shot)
-
-```
-examples/
-  001/
-    client.xlsx      # запрос клиента
-    response.docx    # ответ специалиста
-  002/
-    ...
-```
-
-Каждая подпапка — один пример. Два файла: первый по алфавиту — запрос, второй — ответ.
-
----
-
 ## Поддерживаемые форматы
 
 | Формат | Чтение | Запись |
@@ -388,41 +437,33 @@ examples/
 
 ---
 
-## Тесты
-
-```bash
-pytest tests/ -v
-```
-
----
-
 ## Структура проекта
 
 ```
 document_assistant/
   ai/
-    context_builder.py  — NormativeIndex (Jaccard-поиск), ContextBuilder (подбор под контекст)
+    context_builder.py  — NormativeIndex (Jaccard-поиск), ContextBuilder
     encoders.py         — TextEncoder
-    model.py            — AIModel, OllamaModel, GeminiModel, AnthropicModel, ModelFactory
+    model.py            — AIModel, OllamaModel, GeminiModel, AnthropicModel (retry), ModelFactory
     postprocessor.py    — PostProcessor
-    preprocessor.py     — DocumentPreprocessor, DocumentChunker, ExamplesLoader, ProcessingTask
+    preprocessor.py     — DocumentPreprocessor, DocumentChunker, ProcessingTask
     promt_builders.py   — PromptEngine, NormativeBaseLoader
   core/
-    parsers.py          — DataParser (.xlsx / .docx / .pdf)
-    pydantic_models.py  — APIRequest
+    parsers.py          — DataParser (.xlsx / .docx / .pdf), нормализация ячеек
+    pydantic_models.py  — APIRequest, EstimateRequest, RebuildRequest
     settings.py         — Settings (pydantic-settings)
   reports/
     report_models.py    — InsuranceReport, ReportRow
     report_export.py    — ReportExport
-    writers.py          — ExcelReportWriter (multi-sheet, text matching), WordReportWriter
+    writers.py          — ExcelReportWriter (4-уровневый matching, MergedCell), WordReportWriter
   services/
-    assistant.py        — AIAssistantService
+    assistant.py        — AIAssistantService, сохранение JSON/debug, rebuild_from_json
 app/
-  main.py               — GUI «ВСК ДМС-ассистент» (PyEdifice + PySide6)
-  assets/               — иконки и изображения
-  requirements.txt      — зависимости GUI
-main.py                 — FastAPI приложение
+  main.py               — GUI «ВСК ДМС-ассистент» (оценка, слайдер, прогресс)
+  assets/               — логотип, шрифт
+main.py                 — FastAPI (/api/update, /api/estimate, /api/rebuild)
 docker-compose.yaml
 .env
+reprocess_from_debug.py — переобработка из кэша без LLM (CLI)
 tests/
 ```

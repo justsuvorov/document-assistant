@@ -68,11 +68,16 @@ services:
       - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5:7b}
       - LLM_MAX_CHARS=${LLM_MAX_CHARS:-60000}
       - LLM_NUM_CTX=${LLM_NUM_CTX:-32768}
+      - LLM_BATCH_SIZE=${LLM_BATCH_SIZE:-25}
+      - LLM_MAX_CHUNKS=${LLM_MAX_CHUNKS:-0}
+      - LLM_MAX_SECTIONS=${LLM_MAX_SECTIONS:-15}
       # Облачные провайдеры (если AI_PROVIDER=gemini или anthropic)
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - AI_MODEL_NAME=${AI_MODEL_NAME:-gemini-2.0-flash}
+      - GEMINI_NUM_CTX=${GEMINI_NUM_CTX:-500000}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL_NAME=${ANTHROPIC_MODEL_NAME:-claude-sonnet-4-6}
+      - ANTHROPIC_NUM_CTX=${ANTHROPIC_NUM_CTX:-200000}
       # Промты — обязательные, берутся из .env
       - AI_ROLE=${AI_ROLE}
       - AI_PROMPT_TEMPLATE=${AI_PROMPT_TEMPLATE}
