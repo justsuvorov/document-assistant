@@ -301,7 +301,7 @@ def DocumentAssistantApp(self):
                     Label(text="Оценка обработки",
                           style={**label_s(), "margin-bottom": "8px"})
                     with HBoxView(style={"margin-bottom": "10px"}):
-                        Label(text=f"Чанков: {shown_chunks} из {estimate_data['chunk_count']}",
+                        Label(text=f"Разделов: {shown_chunks} из {estimate_data['chunk_count']}",
                               style={**value_s(), "margin-right": "24px"})
                         Label(text=f"Время: {_fmt_long(shown_time)}",
                               style=value_s())
