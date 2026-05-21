@@ -49,7 +49,7 @@ class MarkdownTableBuilder:
         max_cols = max(len(r) for r in rows)
         result = []
         for row in rows:
-            cells = [str(c).strip() if c is not None else "" for c in row]
+            cells = [str(c).replace("\n", " ").replace("\r", "").strip() if c is not None else "" for c in row]
             cells += [""] * (max_cols - len(cells))
             result.append(cells)
         return result

@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from docx import Document
 from docx.shared import Pt, RGBColor
@@ -119,24 +120,33 @@ class ExcelReportWriter(ReportWriter):
             matched += 1
             sheets_touched.add(ws)
 
-            cov_cell = ws.cell(row=row_idx, column=ann_col, value=row.program_coverage)
-            cov_cell.alignment = wrap
-            cov_cell.border = border
+            cov_cell = ws.cell(row=row_idx, column=ann_col)
+            if not isinstance(cov_cell, MergedCell):
+                cov_cell.value = row.program_coverage
+                cov_cell.alignment = wrap
+                cov_cell.border = border
 
-            status_cell = ws.cell(row=row_idx, column=ann_col + 1, value=row.status)
-            status_cell.fill = PatternFill("solid", fgColor=_status_fill(row.status))
-            status_cell.alignment = wrap
-            status_cell.border = border
+            status_cell = ws.cell(row=row_idx, column=ann_col + 1)
+            if not isinstance(status_cell, MergedCell):
+                status_cell.value = row.status
+                status_cell.fill = PatternFill("solid", fgColor=_status_fill(row.status))
+                status_cell.alignment = wrap
+                status_cell.border = border
 
-            comment_cell = ws.cell(row=row_idx, column=ann_col + 2, value=row.comment)
-            comment_cell.alignment = wrap
-            comment_cell.border = border
+            comment_cell = ws.cell(row=row_idx, column=ann_col + 2)
+            if not isinstance(comment_cell, MergedCell):
+                comment_cell.value = row.comment
+                comment_cell.alignment = wrap
+                comment_cell.border = border
 
         # Add annotation headers to every sheet that received annotations
         for ws in sheets_touched:
             for i, title in enumerate(new_headers):
                 col = ann_col + i
-                cell = ws.cell(row=1, column=col, value=title)
+                cell = ws.cell(row=1, column=col)
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.value = title
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = center

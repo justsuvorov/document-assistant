@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
@@ -8,7 +8,7 @@ from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask
 from document_assistant.ai.promt_builders import PromptEngine
 from document_assistant.core.parsers import DataParser
-from document_assistant.core.pydantic_models import APIRequest
+from document_assistant.core.pydantic_models import APIRequest, RebuildRequest
 from document_assistant.core.settings import settings
 from document_assistant.reports.report_export import ReportExport
 from document_assistant.services.assistant import AIAssistantService
@@ -55,4 +55,25 @@ def _build_service(request: APIRequest) -> AIAssistantService:
 def submit(request: APIRequest):
     ai = _build_service(request)
     result = ai.result()
+    return JSONResponse(content=jsonable_encoder(result))
+
+
+@app.post("/api/rebuild")
+def rebuild(request: RebuildRequest):
+    """Собрать Excel из кэшированного LLM JSON без повторного вызова модели."""
+    task = ProcessingTask(
+        request_id=request.request_id,
+        file_path=request.file_path,
+        user_name=request.user_name,
+    )
+    try:
+        result = AIAssistantService.rebuild_from_json(
+            json_path=request.json_path,
+            file_path=request.file_path,
+            task=task,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return JSONResponse(content=jsonable_encoder(result))

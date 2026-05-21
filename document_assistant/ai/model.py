@@ -73,22 +73,46 @@ class GeminiModel(AIModel):
 # ── Anthropic Claude (cloud) ──────────────────────────────────────────────────
 
 class AnthropicModel(AIModel):
+    _MAX_RETRIES = 5
+    _RETRY_DEFAULT = 60
+
     def __init__(self):
         self._client = anthropic.Anthropic(
             api_key=settings.anthropic_api_key.get_secret_value()
         )
 
     def response(self, query: str) -> str:
-        try:
-            message = self._client.messages.create(
-                model=settings.anthropic_model_name,
-                max_tokens=8192,
-                temperature=settings.ai_temperature,
-                messages=[{"role": "user", "content": query}],
-            )
-            return message.content[0].text.strip()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                message = self._client.messages.create(
+                    model=settings.anthropic_model_name,
+                    max_tokens=8192,
+                    temperature=settings.ai_temperature,
+                    messages=[{"role": "user", "content": query}],
+                )
+                return message.content[0].text.strip()
+            except anthropic.RateLimitError as e:
+                if attempt < self._MAX_RETRIES - 1:
+                    wait = self._RETRY_DEFAULT
+                    try:
+                        retry_after = e.response.headers.get("retry-after")
+                        if retry_after:
+                            wait = int(float(retry_after)) + 5
+                    except Exception:
+                        pass
+                    print(f"[WARN] LLM 429 rate limit — ожидание {wait}с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
+                    time.sleep(wait)
+                    continue
+                raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
+            except anthropic.APIStatusError as e:
+                if e.status_code in (500, 503) and attempt < self._MAX_RETRIES - 1:
+                    print(f"[WARN] LLM {e.status_code} — ожидание 10с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
+                    time.sleep(10)
+                    continue
+                raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
+            except Exception as e:
+                raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
+        raise RuntimeError("Anthropic API: исчерпаны все попытки")
 
 
 # ── Ollama (local Docker or remote GPU server) ────────────────────────────────

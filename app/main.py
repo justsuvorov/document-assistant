@@ -35,7 +35,7 @@ def _estimate_seconds(path: Path) -> int:
         chunks = max(1, (rows + 24) // 25)
     except Exception:
         chunks = 10
-    return chunks * 30
+    return chunks * 45
 
 
 def _fmt(seconds: int) -> str:
@@ -158,7 +158,7 @@ def DocumentAssistantApp(self):
                     requests.post, API_URL,
                     json={"request_id": int(t0), "file_path": container_path,
                           "user_name": "gui_user"},
-                    timeout=900,
+                    timeout=3600,
                 )
             finally:
                 tick_task.cancel()
