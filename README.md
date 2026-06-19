@@ -1,10 +1,10 @@
-# Document Assistant
+# Document Assistant — Qwen Release
 
 Сервис для автоматической обработки клиентских запросов по страхованию ДМС.
 
 Клиент присылает документ (Excel или Word) с перечнем необходимых страховых услуг.
 Сервис сопоставляет их с нормативной базой страховых программ, анализирует каждое требование
-и возвращает структурированный ответ с отметками «Есть / Нет / Частично».
+и возвращает структурированный ответ с отметками **«Есть / Нет / Частично»**.
 
 ---
 
@@ -13,8 +13,7 @@
 | Компонент | Описание |
 |---|---|
 | `main.py` | FastAPI-сервер, эндпоинты `/api/update`, `/api/estimate`, `/api/rebuild` |
-| `app/main.py` | Десктопное GUI-приложение «ВСК ДМС-ассистент» (PyEdifice + PySide6) |
-| `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) + опциональный `ollama` (:11434) |
+| `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) с подключением к Qwen |
 
 ---
 
@@ -34,10 +33,7 @@ POST /api/update
        │               └── ContextBuilder  — RAG: подбирает нормативную базу под бюджет
        │                       └── NormativeIndex — Jaccard-поиск по разделам базы
        │
-       ├── ModelFactory                — выбирает модель по AI_PROVIDER
-       │       ├── OllamaModel         — локальный CPU или удалённый GPU-сервер
-       │       ├── GeminiModel         — Google Gemini API (облако)
-       │       └── AnthropicModel      — Anthropic Claude API (облако, с retry по retry-after)
+       ├── ModelFactory                — QwenModel (OpenAI-compatible API)
        │
        ├── PostProcessor               — парсит ответ LLM → InsuranceReport
        │       └── InsuranceReport.merge() — объединяет ответы по всем чанкам
@@ -61,7 +57,7 @@ client.xlsx / client.docx / client.pdf
 [chunk1, chunk2, ..., chunkN]  ← ограничивается max_chunks если задан
        ↓  для каждого чанка: PromptEngine.build()
 Промты с нормативной базой (RAG через ContextBuilder)
-       ↓  AIModel.response()  ×N  (с retry при 429/503)
+       ↓  QwenModel.response()  ×N  (с retry при overload)
 Сырые ответы LLM
        ↓  сохраняются в *_llm_debug.md и *_llm_output.json
        ↓  PostProcessor → InsuranceReport.merge()
@@ -92,31 +88,6 @@ _build_service(request)
 - **`NORMATIVE_BASE` — директория**: `NormativeBaseLoader` читает все файлы в ней и конкатенирует. Если туда скопировать новый файл, не удалив старый, оба попадут в промт.
 - **`NORMATIVE_BASE` — файл**: перезаписи конкретного файла достаточно.
 
-GUI-приложение копирует выбранный нормативный файл в директорию `normative_base/`. Чтобы замена работала корректно, используйте одно и то же имя файла при обновлении базы.
-
----
-
-## Выбор модели
-
-Модель задаётся через `AI_PROVIDER` в `.env`. `ModelFactory.create()` возвращает нужный объект —
-остальной код не знает какая модель используется (`AIModel.response(query) -> str`).
-
-| `AI_PROVIDER` | Класс | Когда использовать |
-|---|---|---|
-| `ollama` | `OllamaModel` | Локальный CPU-тест или GPU-сервер с Qwen |
-| `gemini` | `GeminiModel` | Облако, самый быстрый и дешёвый вариант |
-| `anthropic` | `AnthropicModel` | Облако, высокое качество |
-
-### Сравнение облачных моделей (полный прогон, ~64 чанка)
-
-| Модель | Стоимость | Время | Rate limit T1 |
-|---|---|---|---|
-| Claude Sonnet 4.6 | ~$10–12 | ~3.5 ч | 30k TPM |
-| Claude Haiku 4.5 | ~$2–3 | ~1.5 ч | ~50k TPM |
-| Gemini 2.0 Flash | ~$0.3 | ~10 мин | высокий |
-
-`AnthropicModel` поддерживает автоматический retry при 429 с использованием заголовка `retry-after` из ответа API (до 5 попыток).
-
 ---
 
 ## Разбивка документа на чанки (DocumentChunker)
@@ -131,7 +102,7 @@ GUI-приложение копирует выбранный нормативн�
 Нормализованный текст
        │
        ├─ 1. Нумерованные разделы  (строки вида "1. Название")
-       │       Каждый раздел → отдельный чанк
+       │       Сгруппированы батчами по LLM_BATCH_SIZE
        │
        ├─ 2. Markdown-заголовки  (строки, начинающиеся с #)
        │       Каждый заголовок + его тело → чанк
@@ -153,13 +124,12 @@ GUI-приложение копирует выбранный нормативн�
 
 ## Управление контекстом (ContextBuilder)
 
-`ContextBuilder` работает для **всех провайдеров** и следит за тем, чтобы нормативная база
-помещалась в контекстное окно модели. Бюджет задаётся отдельно для каждого провайдера.
+`ContextBuilder` следит за тем, чтобы нормативная база помещалась в контекстное окно модели.
 
 ```
 PromptEngine.build(chunk)
     │
-    ├── Полная нормативная база помещается в бюджет (LLM_NUM_CTX / GEMINI_NUM_CTX / ...)?
+    ├── Полная нормативная база помещается в бюджет (QWEN_NUM_CTX)?
     │       Да → отправляем полностью
     │
     └── Нет → NormativeIndex.retrieve(chunk, budget)
@@ -169,11 +139,7 @@ PromptEngine.build(chunk)
             Fallback: если ни один не влезает → обрезаем первый до бюджета
 ```
 
-| Провайдер | Переменная бюджета | Типовое значение |
-|---|---|---|
-| Ollama | `LLM_NUM_CTX` | 32 768 токенов |
-| Gemini | `GEMINI_NUM_CTX` | 1 000 000 токенов |
-| Anthropic | `ANTHROPIC_NUM_CTX` | 200 000 токенов |
+**Qwen контекстное окно:** `QWEN_NUM_CTX=128000` токенов
 
 ---
 
@@ -211,8 +177,8 @@ JSON-формат:
 {
   "file_path": "/app/uploads/client.xlsx",
   "processed_at": "2026-05-20T10:51:00+00:00",
-  "model": "claude-haiku-4-5-20251001",
-  "provider": "anthropic",
+  "model": "Qwen3.6-35B-A3B",
+  "provider": "qwen",
   "chunks": [
     {"index": 1, "raw_response": "...", "rows_parsed": 25},
     ...
@@ -224,33 +190,30 @@ JSON-формат:
 
 ---
 
-## GUI-приложение (ВСК ДМС-ассистент)
-
-Локальное десктопное приложение на PyEdifice + PySide6.
-
-```bash
-python app/main.py
-```
-
-**Функциональность:**
-- Выбор файла нормативной базы (копируется в `normative_base/`)
-- Выбор файла клиента (копируется в `uploads/`)
-- **Кнопка «Оценить время работы»** — анализирует файл через `/api/estimate`, показывает количество чанков и расчётное время
-- **Слайдер 1–100%** — ограничивает долю документа для обработки (уменьшает время)
-- Кнопка «Подготовить» — запускает обработку с учётом слайдера
-- Прогресс-бар с оценкой времени
-- Кнопка «Открыть результат» появляется после завершения обработки
-
-Приложение ожидает запущенный FastAPI-контейнер на порту 8001.
-
----
-
 ## Быстрый старт
 
 ### 1. Настроить `.env`
 
 ```bash
-# или отредактировать .env напрямую
+# Обязательные переменные
+NORMATIVE_BASE=/app/normative_base
+EXAMPLES_PATH=/app/examples
+
+AI_ROLE="Ты — опытный специалист по страхованию..."
+AI_PROMPT_TEMPLATE="{role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_base}\n\n..."
+
+# Модель Qwen
+QWEN_API_URL=https://model-1.ai-api.vsk.ru/v1/completions
+QWEN_MODEL_NAME=Qwen3.6-35B-A3B
+QWEN_MAX_TOKENS=4096
+QWEN_NUM_CTX=128000
+
+# Обработка документов
+LLM_MAX_CHARS=2200000
+LLM_MAX_SECTIONS=10
+LLM_MAX_CHUNKS=0
+LLM_BATCH_SIZE=25
+AI_TEMPERATURE=0.2
 ```
 
 ### 2. Запустить через Docker Compose
@@ -259,14 +222,13 @@ python app/main.py
 docker compose up -d
 ```
 
-Контейнеры:
+Контейнер:
 - `api` — FastAPI на порту `8001`
-- `ollama` — Ollama HTTP API на порту `11434`
 
-### 3. Запустить GUI
+### 3. Проверить здоровье
 
 ```bash
-python app/main.py
+curl http://localhost:8001/docs
 ```
 
 ---
@@ -339,79 +301,21 @@ python app/main.py
 
 ## Конфигурация
 
-| Переменная | По умолчанию | Описание |
-|---|---|---|
-| `NORMATIVE_BASE` | — | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
-| `EXAMPLES_PATH` | `""` | Путь к папке с примерами few-shot |
-| `AI_PROVIDER` | `ollama` | `ollama` / `gemini` / `anthropic` |
-| `AI_TEMPERATURE` | `0.2` | Температура генерации |
-| `AI_ROLE` | — | Системная роль модели |
-| `AI_PROMPT_TEMPLATE` | — | Шаблон промта |
-| **Разбивка документа** | | |
-| `LLM_MAX_CHARS` | `60000` | Максимум символов из клиентского файла. Для больших таблиц — `2200000`. |
-| `LLM_BATCH_SIZE` | `25` | Строк в одном батче при разбивке таблицы |
-| `LLM_MAX_CHUNKS` | `0` | Лимит чанков (`0` = все). Для отладки или переопределяется через `max_chunks` в запросе. |
-| `LLM_MAX_SECTIONS` | `15` | Максимум разделов нормативной базы в промте (RAG-лимит) |
-| **Ollama** | | |
-| `LLM_BASE_URL` | `http://ollama:11434` | Адрес Ollama |
-| `LLM_MODEL_NAME` | `qwen2.5:7b` | Модель Ollama |
-| `LLM_NUM_CTX` | `32768` | Контекстное окно в токенах |
-| **Gemini** | | |
-| `GEMINI_API_KEY` | — | API-ключ Google Gemini |
-| `AI_MODEL_NAME` | `gemini-2.0-flash` | Модель Gemini |
-| `GEMINI_NUM_CTX` | `1000000` | Бюджет токенов для ContextBuilder |
-| **Anthropic** | | |
-| `ANTHROPIC_API_KEY` | — | API-ключ Anthropic |
-| `ANTHROPIC_MODEL_NAME` | `claude-sonnet-4-6` | Модель Anthropic |
-| `ANTHROPIC_NUM_CTX` | `200000` | Бюджет токенов для ContextBuilder |
-
-### Типовые конфигурации
-
-**CPU-тест (локально):**
-```env
-AI_PROVIDER=ollama
-LLM_MODEL_NAME=qwen2.5:1.5b
-LLM_NUM_CTX=4096
-LLM_MAX_CHARS=10000
-LLM_MAX_SECTIONS=2
-LLM_BATCH_SIZE=10
-LLM_MAX_CHUNKS=1
-```
-
-**Облако Anthropic Haiku (оптимум цена/качество):**
-```env
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=...
-ANTHROPIC_MODEL_NAME=claude-haiku-4-5-20251001
-ANTHROPIC_NUM_CTX=200000
-LLM_MAX_CHARS=2200000
-LLM_BATCH_SIZE=25
-LLM_MAX_SECTIONS=10
-LLM_MAX_CHUNKS=0
-```
-
-**Облако Anthropic Sonnet (высокое качество):**
-```env
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=...
-ANTHROPIC_MODEL_NAME=claude-sonnet-4-6
-ANTHROPIC_NUM_CTX=200000
-LLM_MAX_CHARS=2200000
-LLM_BATCH_SIZE=25
-LLM_MAX_SECTIONS=15
-LLM_MAX_CHUNKS=0
-```
-
-**Облако Gemini Flash (быстро и дёшево):**
-```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=...
-AI_MODEL_NAME=gemini-2.0-flash
-LLM_MAX_CHARS=2200000
-LLM_BATCH_SIZE=25
-GEMINI_NUM_CTX=500000
-LLM_MAX_SECTIONS=15
-```
+| Переменная | Описание |
+|---|---|
+| `NORMATIVE_BASE` | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
+| `EXAMPLES_PATH` | Путь к папке с примерами few-shot (опционально) |
+| `AI_ROLE` | Системная роль модели |
+| `AI_PROMPT_TEMPLATE` | Шаблон промта |
+| `LLM_MAX_CHARS` | Максимум символов из клиентского файла (обычно 2 200 000) |
+| `LLM_BATCH_SIZE` | Строк в одном батче при разбивке таблицы (обычно 25) |
+| `LLM_MAX_CHUNKS` | Лимит чанков (0 = все) |
+| `LLM_MAX_SECTIONS` | Максимум разделов нормативной базы в промте (RAG-лимит) |
+| `AI_TEMPERATURE` | Температура генерации (обычно 0.2) |
+| `QWEN_API_URL` | Адрес API Qwen |
+| `QWEN_MODEL_NAME` | Модель Qwen |
+| `QWEN_MAX_TOKENS` | Максимум токенов в ответе |
+| `QWEN_NUM_CTX` | Контекстное окно в токенах (128 000) |
 
 ---
 
@@ -444,7 +348,7 @@ document_assistant/
   ai/
     context_builder.py  — NormativeIndex (Jaccard-поиск), ContextBuilder
     encoders.py         — TextEncoder
-    model.py            — AIModel, OllamaModel, GeminiModel, AnthropicModel (retry), ModelFactory
+    model.py            — AIModel, QwenModel (retry), ModelFactory
     postprocessor.py    — PostProcessor
     preprocessor.py     — DocumentPreprocessor, DocumentChunker, ProcessingTask
     promt_builders.py   — PromptEngine, NormativeBaseLoader
@@ -458,12 +362,9 @@ document_assistant/
     writers.py          — ExcelReportWriter (4-уровневый matching, MergedCell), WordReportWriter
   services/
     assistant.py        — AIAssistantService, сохранение JSON/debug, rebuild_from_json
-app/
-  main.py               — GUI «ВСК ДМС-ассистент» (оценка, слайдер, прогресс)
-  assets/               — логотип, шрифт
 main.py                 — FastAPI (/api/update, /api/estimate, /api/rebuild)
 docker-compose.yaml
 .env
-reprocess_from_debug.py — переобработка из кэша без LLM (CLI)
+requirements.txt
 tests/
 ```

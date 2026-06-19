@@ -15,16 +15,8 @@ from document_assistant.services.assistant import AIAssistantService
 
 app = FastAPI()
 
-_NUM_CTX = {
-    "ollama": lambda: settings.llm_num_ctx,
-    "gemini": lambda: settings.gemini_num_ctx,
-    "anthropic": lambda: settings.anthropic_num_ctx,
-    "qwen": lambda: settings.qwen_num_ctx,
-}
-
-
 def _num_ctx() -> int:
-    return _NUM_CTX.get(settings.ai_provider, lambda: settings.llm_num_ctx)()
+    return settings.qwen_num_ctx
 
 
 def _build_service(request: APIRequest) -> AIAssistantService:

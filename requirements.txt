@@ -1,13 +1,8 @@
 pydantic_settings
 pandas
 pytest
-google-genai
-anthropic
 httpx
 python-multipart
-openpyxl
-python-docx
-pdfplumber
 openpyxl
 python-docx
 pdfplumber

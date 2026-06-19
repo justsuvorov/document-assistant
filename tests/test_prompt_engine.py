@@ -46,7 +46,12 @@ class TestNormativeBaseLoader:
 
 class TestPromptEngine:
     def _engine(self, normative_path=""):
-        return PromptEngine(role=ROLE, template=TEMPLATE, normative_base=normative_path)
+        return PromptEngine(
+            role=ROLE,
+            template=TEMPLATE,
+            normative_base=normative_path,
+            num_ctx=128000,
+        )
 
     def test_build_contains_role(self):
         prompt = self._engine().build(source_text="запрос", examples=[])
@@ -71,13 +76,19 @@ class TestPromptEngine:
             role=ROLE,
             template=TEMPLATE,
             normative_base=str(normative_txt),
+            num_ctx=128000,
         )
         prompt = engine.build(source_text="запрос", examples=[])
         assert "Программа А" in prompt
 
     def test_missing_placeholder_raises(self):
         bad_template = "{role} {missing_key}"
-        engine = PromptEngine(role=ROLE, template=bad_template, normative_base="")
+        engine = PromptEngine(
+            role=ROLE,
+            template=bad_template,
+            normative_base="",
+            num_ctx=128000,
+        )
         with pytest.raises(ValueError, match="Ошибка в шаблоне промпта"):
             engine.build(source_text="текст", examples=[])
 

@@ -9,7 +9,6 @@ classDiagram
         +request_id: int
         +file_path: str
         +user_name: str
-        +priority: int
     }
 
     class ProcessingTask {
@@ -21,27 +20,25 @@ classDiagram
     %% ── Orchestrator ─────────────────────────────────────────────────────────
     class AIAssistantService {
         +result() dict
+        +rebuild_from_json() dict
     }
 
     %% ── Preprocessing ────────────────────────────────────────────────────────
-    class Preprocessor {
-        <<abstract>>
+    class DocumentPreprocessor {
+        +queries() list~str~
         +query() str
     }
 
-    class DocumentPreprocessor {
-        +query() str
-        -_build_references() list
+    class DocumentChunker {
+        +split(text) list~str~
     }
 
     class ExamplesLoader {
-        +load(path) list
+        +load(path) list~str~
     }
 
     class DataParser {
-        +file_path: str
         +origin_data(path) str
-        -_build_engine() Parser
     }
 
     class Parser {
@@ -52,20 +49,6 @@ classDiagram
     class Excel { +read_document(path) str }
     class Word  { +read_document(path) str }
     class PDF   { +read_document(path) str }
-
-    class MarkdownTableBuilder {
-        +from_rows(rows)$ str
-        +normalise(rows)$ list
-    }
-
-    class WordParagraphConverter { +convert(element) str }
-    class WordTableExtractor     { +extract(element) list }
-    class PdfPageExtractor       { +extract(page) list }
-
-    class Encoder {
-        <<abstract>>
-        +prepared_data(source) str
-    }
 
     class TextEncoder {
         +prepared_data(source) str
@@ -79,15 +62,25 @@ classDiagram
         +load(path) str
     }
 
+    class NormativeIndex {
+        +retrieve(query, budget) str
+        +section_count int
+    }
+
+    class ContextBuilder {
+        +build(template, role, examples, source_text) str
+    }
+
     %% ── LLM Models ───────────────────────────────────────────────────────────
     class AIModel {
         <<abstract>>
         +response(query) str
     }
 
-    class GeminiModel    { +response(query) str }
-    class AnthropicModel { +response(query) str }
-    class OllamaModel    { +response(query) str }
+    class QwenModel {
+        +response(query) str
+        -_call_api(query) str
+    }
 
     class ModelFactory {
         +create()$ AIModel
@@ -101,7 +94,7 @@ classDiagram
     class InsuranceReport {
         +rows: list~ReportRow~
         +summary: str
-        +raw_text: str
+        +merge(reports)$ InsuranceReport
     }
 
     class ReportRow {
@@ -121,48 +114,47 @@ classDiagram
         +write(report, path) Path
     }
 
-    class ExcelReportWriter { +write(report, path) Path }
-    class WordReportWriter  { +write(report, path) Path }
+    class ExcelReportWriter {
+        +write(report, path) Path
+        -_find_row_global(requirement, index) tuple
+    }
+
+    class WordReportWriter {
+        +write(report, path) Path
+    }
 
     %% ── Inheritance ──────────────────────────────────────────────────────────
-    Preprocessor  <|-- DocumentPreprocessor
     Parser        <|-- Excel
     Parser        <|-- Word
     Parser        <|-- PDF
-    Encoder       <|-- TextEncoder
-    AIModel       <|-- GeminiModel
-    AIModel       <|-- AnthropicModel
-    AIModel       <|-- OllamaModel
+    AIModel       <|-- QwenModel
     ReportWriter  <|-- ExcelReportWriter
     ReportWriter  <|-- WordReportWriter
 
     %% ── Composition ─────────────────────────────────────────────────────────
-    AIAssistantService   *-- Preprocessor
+    AIAssistantService   *-- DocumentPreprocessor
     AIAssistantService   *-- PostProcessor
     AIAssistantService   *-- AIModel
     AIAssistantService   *-- ReportExport
 
     DocumentPreprocessor *-- DataParser
-    DocumentPreprocessor *-- Encoder
+    DocumentPreprocessor *-- TextEncoder
     DocumentPreprocessor *-- PromptEngine
+    DocumentPreprocessor *-- DocumentChunker
     DocumentPreprocessor *-- ExamplesLoader
 
-    DataParser      *-- Parser
-    Word            *-- WordParagraphConverter
-    Word            *-- WordTableExtractor
-    PDF             *-- PdfPageExtractor
-    PromptEngine    *-- NormativeBaseLoader
-    ReportExport    *-- ReportWriter
+    DataParser    *-- Parser
+    PromptEngine  *-- NormativeBaseLoader
+    PromptEngine  *-- NormativeIndex
+    PromptEngine  *-- ContextBuilder
+    ReportExport  *-- ReportWriter
     InsuranceReport *-- ReportRow
 
     %% ── Dependencies ─────────────────────────────────────────────────────────
-    Excel          ..> MarkdownTableBuilder
-    Word           ..> MarkdownTableBuilder
-    PDF            ..> MarkdownTableBuilder
-    ExamplesLoader ..> DataParser
     ModelFactory   ..> AIModel
     PostProcessor  ..> InsuranceReport
     ReportExport   ..> InsuranceReport
+    ExcelReportWriter ..> NormativeIndex
 ```
 
 ## Обозначения
