@@ -78,6 +78,11 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL_NAME=${ANTHROPIC_MODEL_NAME:-claude-sonnet-4-6}
       - ANTHROPIC_NUM_CTX=${ANTHROPIC_NUM_CTX:-200000}
+      # Qwen (если AI_PROVIDER=qwen)
+      - QWEN_API_URL=${QWEN_API_URL:-}
+      - QWEN_MODEL_NAME=${QWEN_MODEL_NAME:-qwen-plus}
+      - QWEN_MAX_TOKENS=${QWEN_MAX_TOKENS:-4096}
+      - QWEN_NUM_CTX=${QWEN_NUM_CTX:-128000}
       # Промты — обязательные, берутся из .env
       - AI_ROLE=${AI_ROLE}
       - AI_PROMPT_TEMPLATE=${AI_PROMPT_TEMPLATE}

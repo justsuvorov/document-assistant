@@ -16,9 +16,102 @@ class AIModel(ABC):
         pass
 
 
+# ── Service LLM base (для облачных моделей с retry-логикой) ──────────────────
+
+_OVERLOAD_MESSAGE = (
+    "Сервис модели перегружен или недоступен. "
+    "Попыток исчерпаны. Попробуйте позже."
+)
+
+
+class ServiceLLMModel(AIModel, ABC):
+    """Base class for service-based LLM models (Gemini, Anthropic, Qwen).
+
+    Implements automatic retry logic for service errors:
+    - 503 / UNAVAILABLE / overloaded — up to 3 retries with 5s delay
+    - Empty response (ValueError) — up to 3 retries with 1s delay
+
+    Subclass must implement _call_api() for a single API call without retry.
+    """
+
+    retries: int = 3
+    retry_delay: int = 5
+    empty_response_retries: int = 3
+    empty_response_delay: int = 1
+
+    @abstractmethod
+    def _call_api(self, query: str) -> str:
+        """Make one API call. Return text or raise an exception."""
+
+    def response(self, query: str) -> str:
+        for attempt in range(1, self.retries + 1):
+            try:
+                return self._call_api(query)
+            except ValueError as exc:
+                # Empty/invalid response — retry with short timeout
+                if self._is_empty_response(exc) and attempt < self.empty_response_retries:
+                    print(
+                        f"[WARN] {self.__class__.__name__} не вернул текст, "
+                        f"попытка {attempt}/{self.empty_response_retries}, "
+                        f"повтор через {self.empty_response_delay} сек",
+                        flush=True,
+                    )
+                    time.sleep(self.empty_response_delay)
+                    continue
+
+                if self._is_empty_response(exc):
+                    print(
+                        f"[ERROR] {self.__class__.__name__} не вернул валидный текст "
+                        f"после {self.empty_response_retries} попыток",
+                        flush=True,
+                    )
+                    return _OVERLOAD_MESSAGE
+
+                # Other ValueError — fail immediately
+                raise RuntimeError(f"Ошибка {self.__class__.__name__}: {exc}") from exc
+
+            except Exception as exc:
+                if self._is_overload(exc) and attempt < self.retries:
+                    print(
+                        f"[WARN] {self.__class__.__name__} перегружен, "
+                        f"попытка {attempt}/{self.retries}, "
+                        f"повтор через {self.retry_delay} сек. Ошибка: {exc}",
+                        flush=True,
+                    )
+                    time.sleep(self.retry_delay)
+                    continue
+
+                if self._is_overload(exc):
+                    print(
+                        f"[ERROR] {self.__class__.__name__} недоступен после {self.retries} попыток",
+                        flush=True,
+                    )
+                    return _OVERLOAD_MESSAGE
+
+                raise RuntimeError(f"Ошибка {self.__class__.__name__}: {exc}") from exc
+
+        return _OVERLOAD_MESSAGE
+
+    @staticmethod
+    def _is_overload(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return (
+            "503" in text
+            or "unavailable" in text
+            or "overloaded" in text
+            or "429" in text
+            or "rate limit" in text
+        )
+
+    @staticmethod
+    def _is_empty_response(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "не вернул текст" in text or "no response" in text
+
+
 # ── Gemini (cloud) ────────────────────────────────────────────────────────────
 
-class GeminiModel(AIModel):
+class GeminiModel(ServiceLLMModel):
     def __init__(self):
         self._client = genai.Client(
             api_key=settings.gemini_api_key.get_secret_value()
@@ -27,92 +120,118 @@ class GeminiModel(AIModel):
             temperature=settings.ai_temperature,
             top_p=0.95,
             top_k=64,
-            max_output_tokens=16384,
+            max_output_tokens=4096,
         )
 
-    _MAX_RETRIES = 5
-    _RETRY_DEFAULT = 60  # seconds to wait if retryDelay not parseable
+    def _call_api(self, query: str) -> str:
+        result = self._client.models.generate_content(
+            model=settings.model_name,
+            contents=query,
+            config=self._config,
+        )
+        if not result or not result.text:
+            raise ValueError("Gemini не вернула текст")
 
-    def response(self, query: str) -> str:
-        for attempt in range(self._MAX_RETRIES):
-            try:
-                result = self._client.models.generate_content(
-                    model=settings.model_name,
-                    contents=query,
-                    config=self._config,
-                )
-                if not result or not result.text:
-                    raise ValueError("Gemini не вернула текст (возможно, сработал фильтр)")
-                finish = getattr(result.candidates[0], 'finish_reason', 'unknown') if result.candidates else 'unknown'
-                tokens_out = getattr(result.usage_metadata, 'candidates_token_count', '?') if result.usage_metadata else '?'
-                print(f"[INFO] Gemini finish_reason={finish}, output_tokens={tokens_out}, chars={len(result.text)}", flush=True)
-                return result.text.strip()
-            except (genai_errors.ClientError, genai_errors.ServerError) as e:
-                code = getattr(e, 'status_code', None) or getattr(e, 'code', None)
-                is_retryable = code in (429, 503) or "429" in str(e) or "503" in str(e)
-                if is_retryable and attempt < self._MAX_RETRIES - 1:
-                    wait = self._parse_retry_delay(str(e)) + 5
-                    print(f"[WARN] Gemini {code} — ожидание {wait}с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
-                    time.sleep(wait)
-                    continue
-                raise RuntimeError(f"Ошибка Gemini API: {e}") from e
-            except Exception as e:
-                if attempt < self._MAX_RETRIES - 1 and any(s in str(e) for s in ("disconnected", "connection", "timeout")):
-                    print(f"[WARN] Gemini сетевая ошибка — ожидание 10с (попытка {attempt + 1}/{self._MAX_RETRIES}): {e}", flush=True)
-                    time.sleep(10)
-                    continue
-                raise RuntimeError(f"Ошибка Gemini API: {e}") from e
-        raise RuntimeError("Gemini API: исчерпаны все попытки")
-
-    @staticmethod
-    def _parse_retry_delay(message: str) -> int:
-        match = re.search(r"retryDelay['\"]:\s*['\"](\d+)s", message)
-        return int(match.group(1)) if match else GeminiModel._RETRY_DEFAULT
+        finish = (
+            getattr(result.candidates[0], "finish_reason", "unknown")
+            if result.candidates
+            else "unknown"
+        )
+        tokens_out = (
+            getattr(result.usage_metadata, "candidates_token_count", "?")
+            if result.usage_metadata
+            else "?"
+        )
+        print(
+            f"[INFO] Gemini finish_reason={finish}, output_tokens={tokens_out}, chars={len(result.text)}",
+            flush=True,
+        )
+        return result.text.strip()
 
 
 # ── Anthropic Claude (cloud) ──────────────────────────────────────────────────
 
-class AnthropicModel(AIModel):
-    _MAX_RETRIES = 5
-    _RETRY_DEFAULT = 60
-
+class AnthropicModel(ServiceLLMModel):
     def __init__(self):
         self._client = anthropic.Anthropic(
             api_key=settings.anthropic_api_key.get_secret_value()
         )
 
+    def _call_api(self, query: str) -> str:
+        message = self._client.messages.create(
+            model=settings.anthropic_model_name,
+            max_tokens=4096,
+            temperature=settings.ai_temperature,
+            messages=[{"role": "user", "content": query}],
+        )
+        if not message.content or not message.content[0].text:
+            raise ValueError("Anthropic не вернула текст")
+        return message.content[0].text.strip()
+
     def response(self, query: str) -> str:
-        for attempt in range(self._MAX_RETRIES):
+        """Override to handle Anthropic-specific rate limit header."""
+        for attempt in range(1, self.retries + 1):
             try:
-                message = self._client.messages.create(
-                    model=settings.anthropic_model_name,
-                    max_tokens=8192,
-                    temperature=settings.ai_temperature,
-                    messages=[{"role": "user", "content": query}],
-                )
-                return message.content[0].text.strip()
+                return self._call_api(query)
             except anthropic.RateLimitError as e:
-                if attempt < self._MAX_RETRIES - 1:
-                    wait = self._RETRY_DEFAULT
+                if attempt < self.retries:
+                    wait = self.retry_delay
                     try:
                         retry_after = e.response.headers.get("retry-after")
                         if retry_after:
                             wait = int(float(retry_after)) + 5
                     except Exception:
                         pass
-                    print(f"[WARN] LLM 429 rate limit — ожидание {wait}с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
+                    print(
+                        f"[WARN] {self.__class__.__name__} 429 rate limit, "
+                        f"попытка {attempt}/{self.retries}, "
+                        f"повтор через {wait} сек",
+                        flush=True,
+                    )
                     time.sleep(wait)
                     continue
                 raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
             except anthropic.APIStatusError as e:
-                if e.status_code in (500, 503) and attempt < self._MAX_RETRIES - 1:
-                    print(f"[WARN] LLM {e.status_code} — ожидание 10с (попытка {attempt + 1}/{self._MAX_RETRIES})", flush=True)
-                    time.sleep(10)
+                if e.status_code in (500, 503) and attempt < self.retries:
+                    print(
+                        f"[WARN] {self.__class__.__name__} {e.status_code}, "
+                        f"попытка {attempt}/{self.retries}, "
+                        f"повтор через {self.retry_delay} сек",
+                        flush=True,
+                    )
+                    time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
-            except Exception as e:
+            except ValueError as e:
                 raise RuntimeError(f"Ошибка Anthropic API: {e}") from e
-        raise RuntimeError("Anthropic API: исчерпаны все попытки")
+        return _OVERLOAD_MESSAGE
+
+
+# ── Qwen (OpenAI-compatible API) ──────────────────────────────────────────────
+
+class QwenModel(ServiceLLMModel):
+    def __init__(self):
+        self._api_url = settings.qwen_api_url
+        self._model_name = settings.qwen_model_name
+        self._client = httpx.Client(timeout=120, verify=False)
+
+    def _call_api(self, query: str) -> str:
+        resp = self._client.post(
+            self._api_url,
+            json={
+                "model": self._model_name,
+                "prompt": query,
+                "max_tokens": settings.qwen_max_tokens,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["choices"][0]["text"]
+        # Remove thinking blocks if present
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        if not text:
+            raise ValueError("Qwen не вернул текст")
+        return text
 
 
 # ── Ollama (local Docker or remote GPU server) ────────────────────────────────
@@ -164,9 +283,10 @@ class ModelFactory:
     AI_PROVIDER=ollama     → OllamaModel  (local Docker or remote GPU server)
     AI_PROVIDER=gemini     → GeminiModel  (Google Gemini API)
     AI_PROVIDER=anthropic  → AnthropicModel (Anthropic Claude API)
+    AI_PROVIDER=qwen       → QwenModel (Qwen via OpenAI-compatible API)
     """
 
-    _PROVIDERS = ("ollama", "gemini", "anthropic")
+    _PROVIDERS = ("ollama", "gemini", "anthropic", "qwen")
 
     @staticmethod
     def create() -> AIModel:
@@ -183,6 +303,8 @@ class ModelFactory:
             return GeminiModel()
         if provider == "anthropic":
             return AnthropicModel()
+        if provider == "qwen":
+            return QwenModel()
 
         raise ValueError(
             f"Неизвестный AI_PROVIDER='{provider}'. "

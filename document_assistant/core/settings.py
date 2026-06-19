@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     anthropic_model_name: str = Field("claude-sonnet-4-6", alias="ANTHROPIC_MODEL_NAME")
     anthropic_num_ctx: int = Field(200_000, alias="ANTHROPIC_NUM_CTX")
 
+    # --- Qwen (OpenAI-compatible API) ---
+    qwen_api_url: str = Field("", alias="QWEN_API_URL")
+    qwen_model_name: str = Field("qwen-plus", alias="QWEN_MODEL_NAME")
+    qwen_max_tokens: int = Field(4096, alias="QWEN_MAX_TOKENS")
+    qwen_num_ctx: int = Field(128_000, alias="QWEN_NUM_CTX")
+
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")

@@ -19,6 +19,7 @@ _NUM_CTX = {
     "ollama": lambda: settings.llm_num_ctx,
     "gemini": lambda: settings.gemini_num_ctx,
     "anthropic": lambda: settings.anthropic_num_ctx,
+    "qwen": lambda: settings.qwen_num_ctx,
 }
 
 
