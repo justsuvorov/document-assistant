@@ -257,7 +257,7 @@ class ContextBuilder:
     """
 
     CHARS_PER_TOKEN = 3          # conservative for Russian text
-    OUTPUT_RESERVE = 2048        # tokens reserved for model output
+    OUTPUT_RESERVE = 20_000      # tokens reserved for model output
 
     def __init__(self, num_ctx: int, norm_index: NormativeIndex):
         self._max_chars = (num_ctx - self.OUTPUT_RESERVE) * self.CHARS_PER_TOKEN

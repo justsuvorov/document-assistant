@@ -30,7 +30,7 @@ class QwenModel(AIModel):
     def __init__(self):
         self._api_url = settings.qwen_api_url
         self._model_name = settings.qwen_model_name
-        self._client = httpx.Client(timeout=120, verify=False)
+        self._client = httpx.Client(timeout=600, verify=False)  # 10 минут для больших промтов
 
     def response(self, query: str) -> str:
         for attempt in range(1, self.retries + 1):
@@ -45,6 +45,30 @@ class QwenModel(AIModel):
                         flush=True,
                     )
                     time.sleep(self.empty_response_delay)
+                    continue
+                raise RuntimeError(f"Ошибка Qwen API: {exc}") from exc
+
+            except httpx.TimeoutException as exc:
+                if attempt < self.retries:
+                    print(
+                        f"[WARN] Qwen таймаут (ReadTimeout), "
+                        f"попытка {attempt}/{self.retries}, "
+                        f"повтор через {self.retry_delay} сек",
+                        flush=True,
+                    )
+                    time.sleep(self.retry_delay)
+                    continue
+                raise RuntimeError(f"Ошибка Qwen API: таймаут после {self.retries} попыток") from exc
+
+            except httpx.HTTPStatusError as exc:
+                if (exc.response.status_code in (503, 504) and attempt < self.retries):
+                    print(
+                        f"[WARN] Qwen {exc.response.status_code}, "
+                        f"попытка {attempt}/{self.retries}, "
+                        f"повтор через {self.retry_delay} сек",
+                        flush=True,
+                    )
+                    time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка Qwen API: {exc}") from exc
 
@@ -85,6 +109,7 @@ class QwenModel(AIModel):
         text = str(exc).lower()
         return (
             "503" in text
+            or "504" in text
             or "unavailable" in text
             or "overloaded" in text
             or "connection" in text

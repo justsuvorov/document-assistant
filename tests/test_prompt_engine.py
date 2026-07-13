@@ -50,7 +50,7 @@ class TestPromptEngine:
             role=ROLE,
             template=TEMPLATE,
             normative_base=normative_path,
-            num_ctx=128000,
+            num_ctx=500000,
         )
 
     def test_build_contains_role(self):
@@ -76,7 +76,7 @@ class TestPromptEngine:
             role=ROLE,
             template=TEMPLATE,
             normative_base=str(normative_txt),
-            num_ctx=128000,
+            num_ctx=500000,
         )
         prompt = engine.build(source_text="запрос", examples=[])
         assert "Программа А" in prompt
@@ -87,7 +87,7 @@ class TestPromptEngine:
             role=ROLE,
             template=bad_template,
             normative_base="",
-            num_ctx=128000,
+            num_ctx=500000,
         )
         with pytest.raises(ValueError, match="Ошибка в шаблоне промпта"):
             engine.build(source_text="текст", examples=[])

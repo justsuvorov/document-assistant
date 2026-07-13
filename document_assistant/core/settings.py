@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     llm_model_name: str = Field("qwen2.5:7b", alias="LLM_MODEL_NAME")
     llm_max_chars: int = Field(60_000, alias="LLM_MAX_CHARS")
     llm_num_ctx: int = Field(32_768, alias="LLM_NUM_CTX")
-    llm_max_sections: int = Field(15, alias="LLM_MAX_SECTIONS")
+    llm_max_sections: int = Field(300, alias="LLM_MAX_SECTIONS")
     llm_max_chunks: int = Field(0, alias="LLM_MAX_CHUNKS")  # 0 = без ограничений
     llm_batch_size: int = Field(25, alias="LLM_BATCH_SIZE")
 
@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     # --- Qwen (OpenAI-compatible API) ---
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("qwen-plus", alias="QWEN_MODEL_NAME")
-    qwen_max_tokens: int = Field(4096, alias="QWEN_MAX_TOKENS")
-    qwen_num_ctx: int = Field(128_000, alias="QWEN_NUM_CTX")
+    qwen_max_tokens: int = Field(100_000, alias="QWEN_MAX_TOKENS")
+    qwen_num_ctx: int = Field(400_000, alias="QWEN_NUM_CTX")  # полное контекстное окно модели
 
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")

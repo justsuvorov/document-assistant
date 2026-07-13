@@ -15,10 +15,6 @@ from document_assistant.services.assistant import AIAssistantService
 
 app = FastAPI()
 
-def _num_ctx() -> int:
-    return settings.qwen_num_ctx
-
-
 def _build_service(request: APIRequest) -> AIAssistantService:
     task = ProcessingTask(
         request_id=request.request_id,
@@ -34,7 +30,7 @@ def _build_service(request: APIRequest) -> AIAssistantService:
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
                 normative_base=settings.normative_base,
-                num_ctx=_num_ctx(),
+                num_ctx=settings.qwen_num_ctx,
             ),
             examples_path=settings.examples_path,
         ),
