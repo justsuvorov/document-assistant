@@ -22,7 +22,8 @@ from loguru import logger
 PROJECT_DIR       = Path(__file__).parent.parent
 UPLOADS_DIR       = PROJECT_DIR / "uploads"
 NORMATIVE_DIR     = PROJECT_DIR / "normative_base"
-CONTAINER_UPLOADS = "/app/uploads"
+# CONTAINER_UPLOADS = "/app/uploads"  # Старый путь для Docker
+UPLOADS_RELATIVE = "uploads"  # Относительный путь для EXE
 _LOGO_PATH        = PROJECT_DIR / "app" / "assets" / "vsk_logo.png"
 
 # ── Логирование ───────────────────────────────────────────────────────────────
@@ -163,11 +164,11 @@ def DocumentAssistantApp(self):
             src = Path(client_file)
             dst = UPLOADS_DIR / src.name
             await asyncio.to_thread(shutil.copy2, src, dst)
-            container_path = f"{CONTAINER_UPLOADS}/{src.name}"
+            file_path = str(dst)  # Полный путь к файлу
 
             resp = await asyncio.to_thread(
                 requests.post, API_ESTIMATE_URL,
-                json={"file_path": container_path},
+                json={"file_path": file_path},
                 timeout=60,
             )
             if resp.ok:
@@ -216,7 +217,7 @@ def DocumentAssistantApp(self):
                     f"Файл '{src.name}' открыт в другой программе. "
                     "Закройте его и попробуйте снова."
                 )
-            container_path = f"{CONTAINER_UPLOADS}/{src.name}"
+            file_path = str(dst)  # Полный путь к файлу
 
             # Calculate max_chunks from slider and estimate
             max_chunks = 0
@@ -245,7 +246,7 @@ def DocumentAssistantApp(self):
             try:
                 resp = await asyncio.to_thread(
                     requests.post, API_URL,
-                    json={"request_id": int(t0), "file_path": container_path,
+                    json={"request_id": int(t0), "file_path": file_path,
                           "user_name": "gui_user", "max_chunks": max_chunks},
                     timeout=3600,
                 )

@@ -1,5 +1,30 @@
+import sys
+from pathlib import Path
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _find_env_file() -> Path:
+    """Find .env file in multiple locations for both dev and EXE environments."""
+    candidates = [
+        Path.cwd() / ".env",  # Current working directory
+        Path(__file__).parent.parent.parent / ".env",  # Project root (dev)
+        Path(__file__).parent.parent.parent / "dist" / ".env",  # dist/ folder (dev)
+    ]
+
+    # For PyInstaller EXE, also check where the EXE is located
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).parent
+        candidates.insert(0, exe_dir / ".env")  # Check EXE directory first
+
+    for path in candidates:
+        if path.exists():
+            return path
+
+    return Path.cwd() / ".env"  # Fallback
+
+
+_ENV_FILE = _find_env_file()
 
 
 class Settings(BaseSettings):
@@ -44,7 +69,7 @@ class Settings(BaseSettings):
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )

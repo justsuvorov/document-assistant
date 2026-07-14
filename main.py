@@ -94,7 +94,7 @@ if __name__ == "__main__":
     print("[INFO] Запуск Uvicorn...")
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8001,
         workers=1,
         log_level="info",
