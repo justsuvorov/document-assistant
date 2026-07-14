@@ -2,6 +2,7 @@ import asyncio
 import time
 import shutil
 import os
+import json
 from pathlib import Path
 
 import requests
@@ -14,6 +15,7 @@ from edifice import (
 )
 from PySide6.QtWidgets import QFileDialog, QApplication
 from PySide6.QtGui import QFontDatabase, QFont
+from loguru import logger
 
 # ── Path config ───────────────────────────────────────────────────────────────
 
@@ -21,9 +23,47 @@ PROJECT_DIR       = Path(__file__).parent.parent
 UPLOADS_DIR       = PROJECT_DIR / "uploads"
 NORMATIVE_DIR     = PROJECT_DIR / "normative_base"
 CONTAINER_UPLOADS = "/app/uploads"
-API_URL           = "http://localhost:8001/api/update"
-API_ESTIMATE_URL  = "http://localhost:8001/api/estimate"
 _LOGO_PATH        = PROJECT_DIR / "app" / "assets" / "vsk_logo.png"
+
+# ── Логирование ───────────────────────────────────────────────────────────────
+_LOG_PATH = Path(__file__).parent / "app.log"
+logger.remove()  # Удаляем дефолтный handler
+logger.add(_LOG_PATH, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", rotation="10 MB")
+logger.add(lambda msg: print(msg, end=""), format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}")  # Также в консоль
+
+# Загрузка конфига
+_CONFIG_PATH = Path(__file__).parent / "config.json"
+def _load_config():
+    default = {
+        "api_base_url": "http://localhost:8001",
+        "llm": {
+            "max_chars": 2200000,
+            "max_sections": 300,
+            "max_chunks": 0,
+            "batch_size": 25,
+            "temperature": 0.2
+        },
+        "qwen": {
+            "api_url": "https://model-1.ai-api.vsk.ru/v1/completions",
+            "model_name": "Qwen3.6-35B-A3B-NVFP4",
+            "max_tokens": 100000,
+            "num_ctx": 400000
+        }
+    }
+    if _CONFIG_PATH.exists():
+        try:
+            loaded = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            default.update(loaded)
+            return default
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить конфиг: {e}, используются дефолты")
+    return default
+
+_CONFIG = _load_config()
+API_URL           = _CONFIG.get("api_base_url", "http://localhost:8001") + "/api/update"
+API_ESTIMATE_URL  = _CONFIG.get("api_base_url", "http://localhost:8001") + "/api/estimate"
+LLM_CONFIG        = _CONFIG.get("llm", {})
+QWEN_CONFIG       = _CONFIG.get("qwen", {})
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -84,3 +84,18 @@ def rebuild(request: RebuildRequest):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return JSONResponse(content=jsonable_encoder(result))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("[INFO] Инициализация FastAPI приложения...")
+    print(f"[INFO] Settings загружены: NORMATIVE_BASE={settings.normative_base}")
+    print(f"[INFO] FastAPI app создан: {app}")
+    print("[INFO] Запуск Uvicorn...")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8001,
+        workers=1,
+        log_level="info",
+    )

@@ -1,245 +1,159 @@
-# Document Assistant — Qwen Release
+# Document Assistant — Qwen Release (GUI + API)
 
-Сервис для автоматической обработки клиентских запросов по страхованию ДМС.
+Интегрированное решение для автоматического анализа запросов по страхованию ДМС.
 
-Клиент присылает документ (Excel или Word) с перечнем необходимых страховых услуг.
-Сервис сопоставляет их с нормативной базой страховых программ, анализирует каждое требование
-и возвращает структурированный ответ с отметками **«Есть / Нет / Частично»**.
-
----
-
-## Компоненты
-
-| Компонент | Описание |
-|---|---|
-| `main.py` | FastAPI-сервер, эндпоинты `/api/update`, `/api/estimate`, `/api/rebuild` |
-| `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) с подключением к Qwen |
-
----
-
-## Архитектура
-
-```
-POST /api/update
-       │
-       ▼
- AIAssistantService
-       │
-       ├── DocumentPreprocessor
-       │       ├── DataParser          — читает файл клиента (.xlsx / .docx / .pdf) → текст
-       │       ├── TextEncoder         — нормализует текст, обрезает до LLM_MAX_CHARS
-       │       ├── DocumentChunker     — делит на чанки (разделы / заголовки / батчи строк)
-       │       └── PromptEngine        — собирает промт для каждого чанка
-       │               └── ContextBuilder  — RAG: подбирает нормативную базу под бюджет
-       │                       └── NormativeIndex — Jaccard-поиск по разделам базы
-       │
-       ├── ModelFactory                — QwenModel (OpenAI-compatible API)
-       │
-       ├── PostProcessor               — парсит ответ LLM → InsuranceReport
-       │       └── InsuranceReport.merge() — объединяет ответы по всем чанкам
-       │
-       └── ReportExport                — сохраняет результат в формате клиента
-               ├── ExcelReportWriter   — .xlsx (копирует исходник, пишет в столбцы 2-4)
-               └── WordReportWriter    — .docx
-```
-
----
-
-## Поток данных
-
-```
-client.xlsx / client.docx / client.pdf
-       ↓  DataParser  (newlines в ячейках → пробел)
-Сырой текст
-       ↓  TextEncoder  (обрезка до LLM_MAX_CHARS символов)
-Нормализованный текст
-       ↓  DocumentChunker  (стратегия — см. раздел ниже)
-[chunk1, chunk2, ..., chunkN]  ← ограничивается max_chunks если задан
-       ↓  для каждого чанка: PromptEngine.build()
-Промты с нормативной базой (RAG через ContextBuilder)
-       ↓  QwenModel.response()  ×N  (с retry при overload)
-Сырые ответы LLM
-       ↓  сохраняются в *_llm_debug.md и *_llm_output.json
-       ↓  PostProcessor → InsuranceReport.merge()
-Итоговый InsuranceReport
-       ↓  ReportExport
-client_ответ.xlsx  —  исходный файл + 3 новых столбца (2, 3, 4)
-client_ответ.docx  —  новый файл с таблицей (для Word/PDF/прочих)
-```
-
----
-
-## Жизненный цикл нормативной базы
-
-**При старте FastAPI ничего не загружается в память.** `settings = Settings()` читает только `.env` — запоминает путь, не сам файл.
-
-При каждом запросе `POST /api/update` вся цепочка строится заново:
-
-```
-_build_service(request)
-  └─ PromptEngine.__init__()
-       └─ NormativeBaseLoader.load(NORMATIVE_BASE)   ← читает с диска
-       └─ NormativeIndex(text)                        ← индексирует в память
-  └─ DataParser(file_path)                            ← читает клиентский файл
-```
-
-Это значит:
-- **Смена нормативной базы** вступает в силу немедленно при следующем запросе — перезапуск сервера не нужен.
-- **`NORMATIVE_BASE` — директория**: `NormativeBaseLoader` читает все файлы в ней и конкатенирует. Если туда скопировать новый файл, не удалив старый, оба попадут в промт.
-- **`NORMATIVE_BASE` — файл**: перезаписи конкретного файла достаточно.
-
----
-
-## Разбивка документа на чанки (DocumentChunker)
-
-Ключевое бизнес-требование: **ответ на каждое требование клиента отдельно, без группировок**.
-Клиент загружает таблицу с N строками — система возвращает ровно N строк ответа.
-
-Для больших документов и контроля размера промта DocumentChunker делит текст на части.
-Стратегии применяются по приоритету (первая сработавшая используется):
-
-```
-Нормализованный текст
-       │
-       ├─ 1. Нумерованные разделы  (строки вида "1. Название")
-       │       Сгруппированы батчами по LLM_BATCH_SIZE
-       │
-       ├─ 2. Markdown-заголовки  (строки, начинающиеся с #)
-       │       Каждый заголовок + его тело → чанк
-       │       Если внутри есть большая таблица → применяется стратегия 3
-       │
-       ├─ 3. Батчинг строк таблицы  (Markdown-таблица > LLM_BATCH_SIZE строк)
-       │       Заголовок таблицы повторяется в каждом батче
-       │       Пример: 322 строки, LLM_BATCH_SIZE=25 → 13 чанков по 25 строк
-       │
-       └─ 4. Fallback  — весь документ как один чанк
-```
-
-**Важно:** ячейки Excel с переносами строк (`\n`) нормализуются в пробел при парсинге — иначе строки таблицы выходят многострочными и батчинг не срабатывает.
-
-Каждый чанк обрабатывается отдельным запросом к LLM. Ответы объединяются в правильном порядке
-через `InsuranceReport.merge()`.
-
----
-
-## Управление контекстом (ContextBuilder)
-
-`ContextBuilder` следит за тем, чтобы нормативная база помещалась в контекстное окно модели.
-
-```
-PromptEngine.build(chunk)
-    │
-    ├── Полная нормативная база помещается в бюджет (QWEN_NUM_CTX)?
-    │       Да → отправляем полностью
-    │
-    └── Нет → NormativeIndex.retrieve(chunk, budget)
-            Jaccard-scoring по ключевым словам чанка
-            Берём топ LLM_MAX_SECTIONS наиболее релевантных разделов
-            Возвращаем только их (RAG)
-            Fallback: если ни один не влезает → обрезаем первый до бюджета
-```
-
-**Qwen контекстное окно:** `QWEN_NUM_CTX=128000` токенов
-
----
-
-## Сопоставление строк в Excel (ExcelReportWriter)
-
-При записи ответа в `.xlsx` результаты LLM сопоставляются с исходными строками по тексту,
-а не по позиции — это защищает от сдвига при пропуске строк моделью.
-
-Алгоритм поиска строки (четыре уровня, первое совпадение используется):
-
-```
-1. Точное совпадение нормализованного текста
-2. Суффиксное совпадение — источник является хвостом LLM-строки после разделителя
-   (: , ; .) — решает случай "Первичные приёмы: аллерголог-иммунолог" → "аллерголог-иммунолог"
-3. Префиксное совпадение — источник начинается с LLM-строки (≥ 10 символов)
-4. Jaccard-перекрытие слов ≥ 75 % при соотношении длин ≤ 3:1
-```
-
-Дедупликация: каждая исходная строка аннотируется не более одного раза (`used_locations`).
-Объединённые ячейки (`MergedCell`) пропускаются при записи.
-Аннотации пишутся в столбцы 2, 3, 4 на каждом листе, где были найдены совпадения.
-Многолистовые файлы поддерживаются: индекс строк строится глобально по всем листам.
-
----
-
-## Кэширование ответов LLM
-
-После каждой обработки создаются два файла рядом с исходником:
-
-- `*_llm_debug.md` — сырые ответы по чанкам в читаемом виде (для отладки и переобработки)
-- `*_llm_output.json` — структурированный JSON с метаданными (провайдер, модель, время, чанки)
-
-JSON-формат:
-```json
-{
-  "file_path": "/app/uploads/client.xlsx",
-  "processed_at": "2026-05-20T10:51:00+00:00",
-  "model": "Qwen3.6-35B-A3B",
-  "provider": "qwen",
-  "chunks": [
-    {"index": 1, "raw_response": "...", "rows_parsed": 25},
-    ...
-  ]
-}
-```
-
-Для переобработки без повторного вызова LLM используется эндпоинт `/api/rebuild`.
+Включает:
+- **REST API** (FastAPI) для автоматизации обработки документов
+- **Desktop GUI** (PyEdifice + PySide6) для удобной работы пользователя
+- **Подключение к Qwen** через OpenAI-compatible API
+- **Retry-логика** при ошибках сервиса
+- **Частичные результаты** при обработке больших документов
+- **Логирование** во все медиа (консоль + файл)
 
 ---
 
 ## Быстрый старт
 
-### 1. Настроить `.env`
+### Вариант 1: Desktop приложение (EXE)
 
-```bash
-# Обязательные переменные
-NORMATIVE_BASE=/app/normative_base
-EXAMPLES_PATH=/app/examples
+Скачай готовый EXE из `dist/` и настрой подключение:
 
-AI_ROLE="Ты — опытный специалист по страхованию..."
-AI_PROMPT_TEMPLATE="{role}\n\n## НОРМАТИВНАЯ БАЗА:\n{normative_base}\n\n..."
-
-# Модель Qwen
-QWEN_API_URL=https://model-1.ai-api.vsk.ru/v1/completions
-QWEN_MODEL_NAME=Qwen3.6-35B-A3B
-QWEN_MAX_TOKENS=4096
-QWEN_NUM_CTX=128000
-
-# Обработка документов
-LLM_MAX_CHARS=2200000
-LLM_MAX_SECTIONS=10
-LLM_MAX_CHUNKS=0
-LLM_BATCH_SIZE=25
-AI_TEMPERATURE=0.2
+```json
+// app/config.json
+{
+  "api_base_url": "http://your-server.com:8001"
+}
 ```
 
-### 2. Запустить через Docker Compose
+Запусти: `ВСК ДМС-ассистент.exe`
+
+**Что происходит:**
+- Все действия логируются в `app.log` рядом с EXE
+- При обработке больших документов (100+ чанков) каждый чанк повторяется до 3 раз при ошибке
+- Результат сохраняется даже если часть чанков упала
+
+### Вариант 2: Docker контейнер (API только)
 
 ```bash
 docker compose up -d
 ```
 
-Контейнер:
-- `api` — FastAPI на порту `8001`
+API доступен на `http://localhost:8001`
 
-### 3. Проверить здоровье
+Используй GUI приложение для подключения или интегрируй в свой код:
 
 ```bash
-curl http://localhost:8001/docs
+curl -X POST http://localhost:8001/api/update \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": 1,
+    "file_path": "/app/uploads/client.xlsx",
+    "user_name": "Иванов И.И."
+  }'
 ```
 
 ---
 
-## API
+## Компоненты
 
-### `POST /api/update`
+| Компонент | Описание | Запуск |
+|---|---|---|
+| **app/main.py** | Desktop GUI приложение | `ВСК ДМС-ассистент.exe` или `python app/main.py` |
+| **main.py** | FastAPI REST API | `docker compose up` или `uvicorn main:app` |
+| **QWEN API** | LLM модель | Подключение через QWEN_API_URL |
 
-Запускает обработку файла, возвращает путь к результату.
+---
 
-**Тело запроса:**
+## Архитектура обработки документов
+
+```
+Клиентский документ (.xlsx / .docx / .pdf)
+       ↓ DataParser
+Сырой текст
+       ↓ TextEncoder (обрезка до 2,200,000 символов)
+Нормализованный текст
+       ↓ DocumentChunker (батчинг по LLM_BATCH_SIZE=25)
+[chunk1, chunk2, ..., chunkN]  (обычно 3-50 чанков)
+       ↓ для каждого чанка: PromptEngine.build()
+Промты с нормативной базой (RAG через ContextBuilder)
+       ↓ QwenModel.response() с retry (макс 3 попытки)
+           ├─ Успех → сохранить результат
+           ├─ Ошибка 504/503 → повтор через 5 сек
+           └─ После 3 попыток → пропустить, перейти к следующему
+Результаты по всем чанкам (даже если некоторые упали)
+       ↓ InsuranceReport.merge()
+Итоговый отчёт
+       ↓ ReportExport
+client_ответ.xlsx или client_ответ.docx
+```
+
+---
+
+## Конфигурация
+
+### Desktop приложение (app/config.json)
+
+```json
+{
+  "api_base_url": "http://your-server.com:8001"
+}
+```
+
+Логирование: `app.log` рядом с EXE
+
+### API сервис (.env)
+
+```bash
+# Обязательные
+NORMATIVE_BASE=/app/normative_base
+AI_ROLE="Ты — опытный специалист..."
+AI_PROMPT_TEMPLATE="{role}\n\n..."
+
+# Qwen модель
+QWEN_API_URL=https://model-1.ai-api.vsk.ru/v1/completions
+QWEN_MODEL_NAME=Qwen3.6-35B-A3B-NVFP4
+QWEN_MAX_TOKENS=100000
+QWEN_NUM_CTX=400000
+
+# Обработка
+LLM_MAX_CHARS=2200000
+LLM_MAX_SECTIONS=300       # макс разделов нормативной базы
+LLM_MAX_CHUNKS=0           # 0 = все
+LLM_BATCH_SIZE=25          # размер батча при разбивке
+AI_TEMPERATURE=0.2
+```
+
+---
+
+## Retry-логика и обработка ошибок
+
+### При обработке каждого чанка:
+
+1. **Попытка 1-3:** Вызвать LLM
+2. **При ошибке 504/503/timeout:** Пауза 5 сек, повтор
+3. **После 3 попыток:**
+   - Ошибка логируется
+   - Чанк помечается как пропущенный
+   - Переход к следующему чанку
+4. **В конце:** Сохранить все обработанные результаты
+
+**Пример лога при ошибке:**
+```
+2026-07-13 14:23:45 | WARN  | Чанк 55: ошибка на попытке 1/3: 504 Service Unavailable
+2026-07-13 14:23:50 | WARN  | Чанк 55: ошибка на попытке 2/3: 504 Service Unavailable
+2026-07-13 14:23:55 | ERROR | Чанк 55 пропущен после 3 попыток
+```
+
+Результат будет сохранён с тем что удалось обработать (чанки 1-54, 56-120 будут в ответе).
+
+---
+
+## API эндпоинты
+
+### POST /api/update
+
+Запустить обработку файла.
+
 ```json
 {
   "request_id": 1,
@@ -248,46 +162,39 @@ curl http://localhost:8001/docs
   "max_chunks": 0
 }
 ```
-`max_chunks=0` — обработать все чанки (по умолчанию). Положительное число ограничивает обработку.
 
 **Ответ (200):**
 ```json
 {
   "request_id": 1,
-  "user_name": "Иванов И.И.",
   "output_file": "/app/uploads/client_ответ.xlsx"
 }
 ```
 
----
+### POST /api/estimate
 
-### `POST /api/estimate`
+Оценить объём без вызова LLM.
 
-Анализирует файл без вызова LLM, возвращает оценку объёма и времени.
-
-**Тело запроса:**
-```json
-{ "file_path": "/app/uploads/client.xlsx" }
-```
-
-**Ответ (200):**
 ```json
 {
-  "chunk_count": 62,
-  "estimated_seconds": 7440,
-  "total_chars": 2144067,
-  "processed_chars": 2144067
+  "file_path": "/app/uploads/client.xlsx"
 }
 ```
 
----
+**Ответ:**
+```json
+{
+  "chunk_count": 45,
+  "estimated_seconds": 5400,
+  "total_chars": 1200000,
+  "processed_chars": 1200000
+}
+```
 
-### `POST /api/rebuild`
+### POST /api/rebuild
 
-Собирает Excel из кэшированного JSON без повторного вызова LLM.
-Возвращает 422 если `json_path` и `file_path` относятся к разным файлам.
+Пересобрать Excel из кэша LLM JSON.
 
-**Тело запроса:**
 ```json
 {
   "request_id": 1,
@@ -299,72 +206,180 @@ curl http://localhost:8001/docs
 
 ---
 
-## Конфигурация
+## Файлы результатов
 
-| Переменная | Описание |
-|---|---|
-| `NORMATIVE_BASE` | Путь к нормативной базе (файл или папка). Читается при каждом запросе. |
-| `EXAMPLES_PATH` | Путь к папке с примерами few-shot (опционально) |
-| `AI_ROLE` | Системная роль модели |
-| `AI_PROMPT_TEMPLATE` | Шаблон промта |
-| `LLM_MAX_CHARS` | Максимум символов из клиентского файла (обычно 2 200 000) |
-| `LLM_BATCH_SIZE` | Строк в одном батче при разбивке таблицы (обычно 25) |
-| `LLM_MAX_CHUNKS` | Лимит чанков (0 = все) |
-| `LLM_MAX_SECTIONS` | Максимум разделов нормативной базы в промте (RAG-лимит) |
-| `AI_TEMPERATURE` | Температура генерации (обычно 0.2) |
-| `QWEN_API_URL` | Адрес API Qwen |
-| `QWEN_MODEL_NAME` | Модель Qwen |
-| `QWEN_MAX_TOKENS` | Максимум токенов в ответе |
-| `QWEN_NUM_CTX` | Контекстное окно в токенах (128 000) |
+После обработки сохраняются:
+
+- **client_ответ.xlsx** — итоговый отчёт с аннотациями
+- **client_llm_output.json** — кэш LLM ответов (для rebuild)
+- **client_llm_debug.md** — сырые LLM ответы по чанкам
+
+### Структура JSON кэша:
+
+```json
+{
+  "file_path": "/app/uploads/client.xlsx",
+  "processed_at": "2026-07-13T14:23:00+00:00",
+  "model": "Qwen3.6-35B-A3B-NVFP4",
+  "provider": "qwen",
+  "chunks": [
+    {
+      "index": 1,
+      "raw_response": "...",
+      "rows_parsed": 25
+    },
+    {
+      "index": 55,
+      "raw_response": "",
+      "rows_parsed": 0,
+      "error": "504 Service Unavailable"
+    }
+  ]
+}
+```
 
 ---
 
-## Нормативная база
+## Логирование
 
-`NORMATIVE_BASE` указывает на файл (`.docx`, `.xlsx`, `.txt`) или папку — все файлы будут загружены и объединены.
+### Desktop приложение (EXE)
 
-`NormativeIndex` автоматически разбивает текст на разделы по приоритету:
-1. Нумерованные разделы (`1. Название`)
-2. Markdown-заголовки (`# Название`)
-3. Заголовки КАПСЛОКОМ
-4. Абзацные подзаголовки
+Все логи пишутся в **`app.log`** рядом с EXE.
+
+Пример:
+```
+2026-07-13 14:23:45 | INFO  | Приложение запущено
+2026-07-13 14:25:10 | INFO  | Загруженный файл: client.xlsx (2MB)
+2026-07-13 14:25:15 | INFO  | Обработка 45 чанков
+2026-07-13 14:25:20 | INFO  | Чанк 1/45...
+2026-07-13 14:25:25 | WARN  | Чанк 55: ошибка на попытке 1/3: 504 Service Unavailable
+2026-07-13 14:25:30 | WARN  | Чанк 55: ошибка на попытке 2/3: 504 Service Unavailable
+2026-07-13 14:25:35 | ERROR | Чанк 55 пропущен после 3 попыток
+2026-07-13 14:30:00 | INFO  | Готово: client_ответ.xlsx
+```
+
+### API (Docker)
+
+Логи выводятся в консоль контейнера:
+
+```bash
+docker logs -f document_assistant
+```
 
 ---
 
 ## Поддерживаемые форматы
 
-| Формат | Чтение | Запись |
-|---|---|---|
-| `.xlsx` / `.xls` | Да | Да |
-| `.docx` / `.doc` | Да | Да |
-| `.pdf` | Да | Нет (fallback → `.docx`) |
+| Формат | Чтение | Запись | Примечание |
+|---|---|---|---|
+| `.xlsx` / `.xls` | ✅ | ✅ | Аннотирование на месте (+ 3 столбца) |
+| `.docx` / `.doc` | ✅ | ✅ | Новый документ с таблицей |
+| `.pdf` | ✅ | ❌ | Только текстовый (не сканы), fallback на .docx |
 
 ---
 
 ## Структура проекта
 
 ```
-document_assistant/
-  ai/
-    context_builder.py  — NormativeIndex (Jaccard-поиск), ContextBuilder
-    encoders.py         — TextEncoder
-    model.py            — AIModel, QwenModel (retry), ModelFactory
-    postprocessor.py    — PostProcessor
-    preprocessor.py     — DocumentPreprocessor, DocumentChunker, ProcessingTask
-    promt_builders.py   — PromptEngine, NormativeBaseLoader
-  core/
-    parsers.py          — DataParser (.xlsx / .docx / .pdf), нормализация ячеек
-    pydantic_models.py  — APIRequest, EstimateRequest, RebuildRequest
-    settings.py         — Settings (pydantic-settings)
-  reports/
-    report_models.py    — InsuranceReport, ReportRow
-    report_export.py    — ReportExport
-    writers.py          — ExcelReportWriter (4-уровневый matching, MergedCell), WordReportWriter
-  services/
-    assistant.py        — AIAssistantService, сохранение JSON/debug, rebuild_from_json
-main.py                 — FastAPI (/api/update, /api/estimate, /api/rebuild)
-docker-compose.yaml
-.env
-requirements.txt
-tests/
+document_assistant/     — API сервис
+├── ai/
+│   ├── model.py              — QwenModel с retry-логикой
+│   ├── preprocessor.py       — DocumentChunker (батчинг)
+│   ├── postprocessor.py      — Парсинг LLM ответов
+│   ├── promt_builders.py     — PromptEngine, RAG
+│   ├── context_builder.py    — Управление контекстом
+│   └── encoders.py           — TextEncoder
+├── core/
+│   ├── settings.py           — Конфигурация (.env)
+│   ├── parsers.py            — Парсеры (Excel, Word, PDF)
+│   └── pydantic_models.py    — Модели API запросов
+├── reports/
+│   ├── writers.py            — ExcelReportWriter (4-уровневый matching)
+│   ├── report_export.py      — ReportExport
+│   └── report_models.py      — InsuranceReport, ReportRow
+└── services/
+    └── assistant.py          — AIAssistantService (оркестрация)
+
+app/                    — Desktop GUI
+├── main.py                   — Edifice + PySide6
+├── config.json               — Конфигурация (api_base_url)
+├── config.json.example       — Пример конфига
+├── requirements.txt          — Зависимости (edifice, PySide6, loguru)
+└── assets/
+    └── vsk_logo.png          — Логотип
+
+build.spec              — Конфигурация PyInstaller
+docker-compose.yaml     — Docker Compose (API + Qwen connection)
+.env                    — Переменные окружения для Docker
+.env.example            — Пример .env
+requirements.txt        — API зависимости
+main.py                 — FastAPI приложение
+tests/                  — Модульные тесты
 ```
+
+---
+
+## Сборка EXE
+
+```bash
+# Установи зависимости GUI
+pip install -r app/requirements.txt
+
+# Собери EXE
+pyinstaller build.spec --clean --noconfirm
+
+# Готовый EXE в dist/ВСК ДМС-ассистент.exe
+```
+
+Рядом с EXE автоматически создаётся `app.log` для логирования.
+
+---
+
+## Производительность
+
+| Сценарий | Время | Примечание |
+|---|---|---|
+| Малый документ (10 строк, 1 чанк) | ~30 сек | Зависит от Qwen API |
+| Средний документ (100 строк, 5 чанков) | ~2-3 мин | С retry паузами |
+| Большой документ (300+ строк, 50+ чанков) | ~10-20 мин | Может быть timeout на 504 |
+
+При ошибке 504 на 50м-70м чанке приложение:
+- Повторит 2 дополнительные попытки
+- Если не помогло, пропустит чанк и продолжит
+- В конце сохранит результат со всеми успешными чанками
+
+---
+
+## Решение проблем
+
+### Ошибка "Not Found: ModuleNotFoundError: No module named 'PySide6'"
+
+```bash
+pip install PySide6 --upgrade
+pip install -r app/requirements.txt
+```
+
+### Ошибка "504 Service Unavailable" постоянно
+
+Это может быть перегрузка сервиса Qwen. Приложение автоматически повторит до 3 раз. Если продолжается:
+- Проверь QWEN_API_URL
+- Дождись когда разгрузится сервис
+- Пересчитай документ
+
+Частичные результаты всё равно будут сохранены.
+
+### Где логи приложения?
+
+- **Desktop EXE:** `app.log` рядом с файлом
+- **Docker API:** `docker logs document_assistant`
+
+---
+
+## Дальнейшие улучшения
+
+- [ ] Асинхронная обработка чанков (параллельные запросы)
+- [ ] Queue система для массовой обработки
+- [ ] Web интерфейс вместо GUI
+- [ ] Поддержка более узких RAG стратегий
+- [ ] Метрики обработки (в Prometheus/Grafana)
+- [ ] Мониторинг здоровья Qwen API

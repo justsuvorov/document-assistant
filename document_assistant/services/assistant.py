@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,19 +34,51 @@ class AIAssistantService:
         reports = []
         debug_lines = []
         llm_chunks = []
+        max_retries = 3
+
         for i, query in enumerate(queries, 1):
             print(f"[INFO] Чанк {i}/{len(queries)}...", flush=True)
-            raw_response = self._model.response(query)
-            report = self._postprocessor.report(raw_response)
-            reports.append(report)
-            debug_lines.append(f"## Чанк {i} — {len(report.rows)} строк\n\n{raw_response}")
-            llm_chunks.append({"index": i, "raw_response": raw_response, "rows_parsed": len(report.rows)})
+            raw_response = None
 
+            # Retry логика для каждого чанка
+            for attempt in range(1, max_retries + 1):
+                try:
+                    raw_response = self._model.response(query)
+                    report = self._postprocessor.report(raw_response)
+                    reports.append(report)
+                    debug_lines.append(f"## Чанк {i} — {len(report.rows)} строк\n\n{raw_response}")
+                    llm_chunks.append({"index": i, "raw_response": raw_response, "rows_parsed": len(report.rows)})
+                    break  # Успешно, выходим из retry loop
+                except Exception as e:
+                    print(
+                        f"[WARN] Чанк {i}: ошибка на попытке {attempt}/{max_retries}: {e}",
+                        flush=True,
+                    )
+                    if attempt < max_retries:
+                        time.sleep(5)  # Пауза перед повтором
+                        continue
+                    else:
+                        # После 3 попыток логируем что пропустили чанк и продолжаем
+                        print(
+                            f"[ERROR] Чанк {i} пропущен после {max_retries} попыток",
+                            flush=True,
+                        )
+                        debug_lines.append(f"## Чанк {i} — ОШИБКА\n\nПропущен после {max_retries} попыток: {e}")
+                        llm_chunks.append({"index": i, "raw_response": "", "rows_parsed": 0, "error": str(e)})
+                        break
+
+        # Сохраняем то что есть
         self._save_llm_debug(debug_lines)
         self._save_llm_json(llm_chunks)
 
-        report = InsuranceReport.merge(reports)
-        return self._report_export.response(report)
+        # Если есть хоть какие-то успешные результаты, возвращаем их
+        if reports:
+            report = InsuranceReport.merge(reports)
+            return self._report_export.response(report)
+        else:
+            # Если вообще ничего не обработалось
+            print("[ERROR] Не удалось обработать ни один чанк", flush=True)
+            raise RuntimeError("Обработка не удалась: все чанки вернули ошибку")
 
     def _save_llm_debug(self, chunks: list[str]) -> None:
         try:
