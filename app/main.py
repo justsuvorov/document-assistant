@@ -19,12 +19,19 @@ from loguru import logger
 
 # ── Path config ───────────────────────────────────────────────────────────────
 
-PROJECT_DIR       = Path(__file__).parent.parent
-UPLOADS_DIR       = PROJECT_DIR / "uploads"
-NORMATIVE_DIR     = PROJECT_DIR / "normative_base"
-# CONTAINER_UPLOADS = "/app/uploads"  # Старый путь для Docker
-UPLOADS_RELATIVE = "uploads"  # Относительный путь для EXE
-_LOGO_PATH        = PROJECT_DIR / "app" / "assets" / "vsk_logo.png"
+import sys
+
+# For PyInstaller EXE, use current working directory as base
+# For dev, use project root
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path.cwd()  # Use current working directory for EXE
+else:
+    BASE_DIR = Path(__file__).parent.parent  # Use project root for dev
+
+PROJECT_DIR = BASE_DIR
+UPLOADS_DIR = BASE_DIR / "uploads"
+NORMATIVE_DIR = BASE_DIR / "normative_base"
+_LOGO_PATH = Path(__file__).parent / "assets" / "vsk_logo.png"
 
 # ── Логирование ───────────────────────────────────────────────────────────────
 _LOG_PATH = Path(__file__).parent / "app.log"

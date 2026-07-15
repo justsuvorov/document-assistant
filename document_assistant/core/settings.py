@@ -34,6 +34,27 @@ class Settings(BaseSettings):
     normative_base: str = Field(..., alias="NORMATIVE_BASE")
     examples_path: str = Field("", alias="EXAMPLES_PATH")
 
+    @field_validator("normative_base", "examples_path", mode="after")
+    @classmethod
+    def resolve_relative_paths(cls, v: str) -> str:
+        """Convert relative paths to absolute, relative to project/dist directory."""
+        if not v:
+            return v
+        p = Path(v)
+        if p.is_absolute():
+            return str(p)
+        # Try to resolve relative to current directory first
+        if (Path.cwd() / v).exists():
+            return str((Path.cwd() / v).resolve())
+        # Then try dist/ directory
+        if (Path(__file__).parent.parent.parent / "dist" / v).exists():
+            return str((Path(__file__).parent.parent.parent / "dist" / v).resolve())
+        # Then project root
+        if (Path(__file__).parent.parent.parent / v).exists():
+            return str((Path(__file__).parent.parent.parent / v).resolve())
+        # Return as-is if nothing found
+        return str(p.resolve())
+
     # --- AI (общее) ---
     # Допустимые значения: "ollama" | "gemini" | "anthropic"
     ai_provider: str = Field("ollama", alias="AI_PROVIDER")
