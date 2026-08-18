@@ -79,11 +79,19 @@ class Settings(BaseSettings):
     anthropic_model_name: str = Field("claude-sonnet-4-6", alias="ANTHROPIC_MODEL_NAME")
     anthropic_num_ctx: int = Field(200_000, alias="ANTHROPIC_NUM_CTX")
 
-    # --- Qwen (OpenAI-compatible API) ---
+    # --- Qwen (OpenAI-compatible API, /v1/completions) ---
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("qwen-plus", alias="QWEN_MODEL_NAME")
     qwen_max_tokens: int = Field(100_000, alias="QWEN_MAX_TOKENS")
     qwen_num_ctx: int = Field(400_000, alias="QWEN_NUM_CTX")  # полное контекстное окно модели
+
+    # --- VSK AI (OpenAI-compatible chat API, /v1/chat/completions) ---
+    vsk_api_url: str = Field("https://llm.ai-api.vsk.ru/v1/chat/completions", alias="VSK_API_URL")
+    vsk_api_key: SecretStr | None = Field("", alias="VSK_API_KEY")
+    vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
+    vsk_max_tokens: int = Field(100_000, alias="VSK_MAX_TOKENS")
+    vsk_thinking_token_budget: int = Field(1_000, alias="VSK_THINKING_TOKEN_BUDGET")
+    vsk_num_ctx: int = Field(400_000, alias="VSK_NUM_CTX")  # полное контекстное окно модели
 
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")

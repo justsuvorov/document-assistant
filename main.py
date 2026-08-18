@@ -30,7 +30,7 @@ def _build_service(request: APIRequest) -> AIAssistantService:
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
                 normative_base=settings.normative_base,
-                num_ctx=settings.qwen_num_ctx,
+                num_ctx=settings.vsk_num_ctx if settings.ai_provider == "vsk" else settings.qwen_num_ctx,
             ),
             examples_path=settings.examples_path,
         ),
