@@ -3,10 +3,22 @@ import os
 import pytest
 from pathlib import Path
 
-# Set required env vars before any app module is imported (settings validation)
+# Set required env vars before any app module is imported (settings validation).
+# Explicit here (not left to whatever real .env the test happens to run next
+# to) so tests stay hermetic — a real .env with these keys blank/absent would
+# silently make prompt-content-sensitive tests build empty prompts.
 os.environ.setdefault("NORMATIVE_BASE", "/tmp/test_normative")
 os.environ.setdefault("AI_ROLE", "Test role")
 os.environ.setdefault("AI_PROMPT_TEMPLATE", "{role} {normative_base} {examples} {source_text}")
+
+os.environ.setdefault("MATRIX_AI_ROLE", "Test matrix role")
+os.environ.setdefault("MATRIX_PROMPT_TEMPLATE", "{role}\nПункт (номер/название)\n{source_text}")
+os.environ.setdefault("RECONCILIATION_AI_ROLE", "Test reconciliation role")
+os.environ.setdefault(
+    "RECONCILIATION_PROMPT_TEMPLATE",
+    "{role}\n{reconciliation_logic}\n{rules_matrix}\n{special_conditions}\n{source_text}",
+)
+os.environ.setdefault("RECONCILIATION_RULES_BASE", "")
 
 from openpyxl import Workbook
 from docx import Document

@@ -271,13 +271,12 @@ classDiagram
         +clause_id: str
         +effective_text: str
         +source_label: str
-        +effective_from: date
     }
 
     class PolicySource {
         +kind: str
         +ds_number: int
-        +valid_from: date
+        +clause_numbers: list~str~
         +sort_key() tuple
     }
 
