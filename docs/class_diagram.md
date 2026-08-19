@@ -173,7 +173,9 @@ classDiagram
 
 # Диаграмма классов — сверка деклараций с ген. полисом (cargo)
 
-Второй пайплайн (`document_assistant/cargo/`), **не** параллельный оркестратор: каждый вызов ИИ (извлечение пунктов из документа полиса/ДС, сверка одной декларации) выполняется через `AIAssistantService` — тот же класс, что использует ДМС-пайплайн (`services/assistant.py`), а не отдельная копия retry/чанк-цикла. `RulesMatrixBuilder` и `CargoReconciliationService` собирают cargo-специфичные preprocessor/postprocessor/report_export и передают их в `AIAssistantService`; `ClauseMerger` (приоритет ДС) и запись в файл — единственная логика, которая реально уникальна для cargo.
+Второй пайплайн (`document_assistant/cargo/`), **не** параллельный оркестратор: каждый вызов ИИ (извлечение пунктов из документа полиса/ДС, сверка одной декларации) выполняется через `AIAssistantService` — тот же класс, что использует ДМС-пайплайн (`services/assistant.py`), а не отдельная копия retry/чанк-цикла.
+
+`main.py`'s `/api/reconcile` строит `AIAssistantService` напрямую, по одному экземпляру на файл декларации, через хелпер `_build_reconciliation_service()` — точно так же, как `_build_service()` строит его для `/api/update`. Отдельного класса-оркестратора верхнего уровня (наподобие `AIAssistantService`, но только для cargo) нет — эту роль выполняет сам route handler в цикле по `declaration_paths`. `RulesMatrixBuilder` устроен аналогично: по каждому источнику (полис/ДС) строит и вызывает свой `AIAssistantService`, а поверх — `ClauseMerger` сводит кандидатов в матрицу (единственная логика, которая реально уникальна для cargo и оправдывает отдельный класс: приоритет «последний ДС побеждает» и кэш матрицы по папке).
 
 Переиспользуются напрямую, без изменений интерфейсов: `DataParser`, `TextEncoder`, `AIModel`/`ModelFactory`, `DocumentChunker`, `MarkdownTableParser`, `ProcessingTask` — и, что важнее, базовый класс `Preprocessor` (`ai/preprocessor.py`, оба cargo-препроцессора его наследуют) и абстрактный `ReportWriter` (`reports/writers.py`, `ReconciliationExcelWriter` — вторая его реализация наряду с `ExcelReportWriter`/`WordReportWriter`).
 
@@ -295,10 +297,9 @@ classDiagram
     }
 
     %% ── Reconciliation ───────────────────────────────────────────────────────
-    class CargoReconciliationService {
-        +result(request) dict
-        -_process_declaration(decl_path, request, rules_matrix_block) dict
-    }
+    %% NOTE: no CargoReconciliationService class — main.py's reconcile() route
+    %% loops over declaration_paths and calls _build_reconciliation_service()
+    %% (a plain function, mirrors _build_service() for /api/update) per file.
 
     class DeclarationPreprocessor {
         +queries() list~str~
@@ -356,6 +357,7 @@ classDiagram
     AIAssistantService ..> ReconciliationPostProcessor : postprocessor
     AIAssistantService ..> CargoReportExport : report_export
     AIAssistantService ..> ReconciliationReport : report_merge
+    %% built by main.py's _build_reconciliation_service(), one per declaration file
 
     %% ── Composition ──────────────────────────────────────────────────────────
     RulesMatrixService   *-- PolicyFolderScanner
@@ -370,12 +372,6 @@ classDiagram
     ClauseMerger         ..> PolicySource
     CandidateReportExport ..> CandidateBatch
 
-    CargoReconciliationService *-- ReconciliationPromptEngine
-    CargoReconciliationService *-- DeclarationTypeClassifier
-    CargoReconciliationService *-- DeclarationFilenameParser
-    CargoReconciliationService ..> AIAssistantService
-    CargoReconciliationService ..> RulesMatrix
-    CargoReconciliationService ..> SpecialConditionsLoader
     CargoReportExport ..> ReconciliationOutputResolver
     CargoReportExport ..> PeriodMonthResolver
     ReconciliationPostProcessor ..> DeclarationNumbering

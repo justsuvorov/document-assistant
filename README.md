@@ -371,10 +371,13 @@ document_assistant/     — API сервис
     ├── report_export.py          — CargoReportExport, CandidateReportExport
     │                                (report_export для AIAssistantService)
     ├── output_paths.py           — путь результата, проверка месячной папки
-    ├── reconciliation_service.py — CargoReconciliationService: классифицирует
-    │                                декларацию, строит AIAssistantService на файл
     └── templates/
         └── reconciliation_form.xlsx  — фиксированная форма результата
+
+Отдельного класса-оркестратора для сверки деклараций нет — main.py строит
+AIAssistantService напрямую по одному экземпляру на файл декларации, через
+_build_reconciliation_service() (см. main.py), точно так же, как
+_build_service() строит его для /api/update.
 
 app/                    — Desktop GUI
 ├── main.py                   — Edifice + PySide6

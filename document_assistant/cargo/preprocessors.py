@@ -6,9 +6,10 @@ class DeclarationPreprocessor(Preprocessor):
     reconciliation prompts — the AIAssistantService-facing half of
     DocumentPreprocessor's role in the DMS pipeline.
 
-    Chunking/classification happens one level up in
-    CargoReconciliationService rather than inside this class, because the
-    SAME classification result (single vs. multi-row) is also needed to
+    Chunking/classification happens one level up, in main.py's
+    _build_reconciliation_service() (mirroring _build_service() for the DMS
+    pipeline), rather than inside this class — because the SAME
+    classification result (single vs. multi-row) is also needed to
     construct the matching ReconciliationPostProcessor and to report
     type/line_items in the API response — those must exist before
     AIAssistantService.result() runs, so they can't be discovered by this

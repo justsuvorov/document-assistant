@@ -7,7 +7,14 @@ from document_assistant.ai.model import ModelFactory
 from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
 from document_assistant.ai.promt_builders import PromptEngine
-from document_assistant.cargo.reconciliation_service import CargoReconciliationService
+from document_assistant.cargo.declaration_classifier import DeclarationType, DeclarationTypeClassifier
+from document_assistant.cargo.filename_parsing import DeclarationFilenameParser
+from document_assistant.cargo.models import ReconciliationReport
+from document_assistant.cargo.preprocessors import DeclarationPreprocessor
+from document_assistant.cargo.reconciliation_postprocessor import ReconciliationPostProcessor
+from document_assistant.cargo.reconciliation_prompt import ReconciliationPromptEngine
+from document_assistant.cargo.reconciliation_writer import ReconciliationExcelWriter
+from document_assistant.cargo.report_export import CargoReportExport
 from document_assistant.cargo.rules_matrix_service import RulesMatrixService
 from document_assistant.cargo.special_conditions import SpecialConditionsLoader
 from document_assistant.core.parsers import DataParser
@@ -68,6 +75,37 @@ def submit(request: APIRequest):
     return JSONResponse(content=jsonable_encoder(result))
 
 
+def _build_reconciliation_service(
+    decl_path: str,
+    request: ReconcileRequest,
+    rules_matrix_block: str,
+    prompt_engine: ReconciliationPromptEngine,
+    special_conditions_text: str,
+) -> tuple[AIAssistantService, DeclarationType, int]:
+    """Builds one AIAssistantService for one declaration file — the cargo
+    counterpart to _build_service() above. Classification happens here
+    (not inside DeclarationPreprocessor) because ReconciliationPostProcessor
+    also needs to know single-vs-multi before AIAssistantService.result() runs.
+    """
+    text = TextEncoder().prepared_data(DataParser(decl_path).origin_data(decl_path))
+    decl_number = DeclarationFilenameParser().parse_number(decl_path) or "UNKNOWN"
+    decl_type = DeclarationTypeClassifier().classify(text)
+    multi = decl_type is DeclarationType.MULTI
+    chunks = DocumentChunker(batch_size=1).split(text) if multi else [text]
+
+    task = ProcessingTask(request_id=request.request_id, file_path=decl_path, user_name=request.user_name)
+    service = AIAssistantService(
+        preprocessor=DeclarationPreprocessor(chunks, prompt_engine, rules_matrix_block, special_conditions_text),
+        postprocessor=ReconciliationPostProcessor(decl_number, multi=multi),
+        ai_model=ModelFactory.create(),
+        report_export=CargoReportExport(
+            task, decl_number, ReconciliationExcelWriter(special_conditions_text=special_conditions_text),
+        ),
+        report_merge=ReconciliationReport.merge,
+    )
+    return service, decl_type, len(chunks)
+
+
 @app.post("/api/reconcile")
 def reconcile(request: ReconcileRequest):
     """Сверка деклараций с генеральным полисом и ДС."""
@@ -83,9 +121,34 @@ def reconcile(request: ReconcileRequest):
     special_conditions_text = SpecialConditionsLoader().load(
         request.policy_folder, request.special_conditions_path,
     )
-    service = CargoReconciliationService.default(matrix=matrix, special_conditions_text=special_conditions_text)
-    result = service.result(request)
-    result["matrix"]["cache_hit"] = cache_hit
+    prompt_engine = ReconciliationPromptEngine(
+        role=settings.reconciliation_ai_role,
+        template=settings.reconciliation_prompt_template,
+        rules_base_path=settings.reconciliation_rules_base,
+    )
+    rules_matrix_block = matrix.to_prompt_block()
+
+    declarations_out = []
+    for decl_path in request.declaration_paths:
+        service, decl_type, chunk_count = _build_reconciliation_service(
+            decl_path, request, rules_matrix_block, prompt_engine, special_conditions_text,
+        )
+        decl_result = service.result(max_chunks_override=request.max_chunks)
+        decl_result["type"] = decl_type.value
+        decl_result["line_items"] = chunk_count if decl_type is DeclarationType.MULTI else 1
+        declarations_out.append(decl_result)
+
+    result = {
+        "request_id": request.request_id,
+        "user_name": request.user_name,
+        "policy_folder": request.policy_folder,
+        "matrix": {
+            "clause_count": len(matrix.clauses),
+            "fingerprint": matrix.fingerprint,
+            "cache_hit": cache_hit,
+        },
+        "declarations": declarations_out,
+    }
     return JSONResponse(content=jsonable_encoder(result))
 
 
