@@ -8,6 +8,7 @@ from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
 from document_assistant.ai.promt_builders import PromptEngine
 from document_assistant.cargo.declaration_classifier import DeclarationType, DeclarationTypeClassifier
+from document_assistant.cargo.declaration_discovery import DeclarationDiscovery
 from document_assistant.cargo.filename_parsing import DeclarationFilenameParser
 from document_assistant.cargo.models import ReconciliationReport
 from document_assistant.cargo.preprocessors import DeclarationPreprocessor
@@ -111,12 +112,22 @@ def reconcile(request: ReconcileRequest):
     """Сверка деклараций с генеральным полисом и ДС."""
     try:
         matrix, cache_hit = RulesMatrixService.default().get_or_build(
-            request.policy_folder, force_rebuild=request.force_rebuild_matrix,
+            request.policy_folder,
+            policy_file_override=request.policy_file_override,
+            ds_folder_override=request.ds_folder_override,
+            force_rebuild=request.force_rebuild_matrix,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    declaration_paths = DeclarationDiscovery.resolve(request.policy_folder, request.declaration_paths)
+    if not declaration_paths:
+        raise HTTPException(
+            status_code=422,
+            detail="Не найдено ни одной декларации для сверки (папка 'Декларации' пуста или не существует)",
+        )
 
     special_conditions_text = SpecialConditionsLoader().load(
         request.policy_folder, request.special_conditions_path,
@@ -129,7 +140,7 @@ def reconcile(request: ReconcileRequest):
     rules_matrix_block = matrix.to_prompt_block()
 
     declarations_out = []
-    for decl_path in request.declaration_paths:
+    for decl_path in declaration_paths:
         service, decl_type, chunk_count = _build_reconciliation_service(
             decl_path, request, rules_matrix_block, prompt_engine, special_conditions_text,
         )

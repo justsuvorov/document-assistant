@@ -60,7 +60,7 @@ class RulesMatrixBuilder:
 
         task = ProcessingTask(request_id=0, file_path=source.file_path)
         service = AIAssistantService(
-            preprocessor=ClauseExtractionPreprocessor(chunks, self._prompt_engine),
+            preprocessor=ClauseExtractionPreprocessor(chunks, self._prompt_engine, source.clause_numbers or None),
             postprocessor=self._postprocessor,
             ai_model=self._model,
             report_export=CandidateReportExport(task),

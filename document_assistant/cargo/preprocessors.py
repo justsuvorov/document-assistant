@@ -33,11 +33,19 @@ class ClauseExtractionPreprocessor(Preprocessor):
     """Turns one policy/ДС document's pre-computed chunks into clause-
     extraction prompts. Mirrors DeclarationPreprocessor's role for the
     rules-matrix-building step of the cargo pipeline.
+
+    clause_numbers: when the source is a ДС whose file name already names
+    the clauses it amends (see PolicyFilenameParser.parse_ds), forwarded to
+    MatrixPromptEngine to narrow the prompt to just those clauses.
     """
 
-    def __init__(self, chunks: list[str], prompt_engine):
+    def __init__(self, chunks: list[str], prompt_engine, clause_numbers: list[str] | None = None):
         self._chunks = chunks
         self._prompt_engine = prompt_engine
+        self._clause_numbers = clause_numbers
 
     def queries(self) -> list[str]:
-        return [self._prompt_engine.build(source_text=chunk) for chunk in self._chunks]
+        return [
+            self._prompt_engine.build(source_text=chunk, clause_numbers=self._clause_numbers)
+            for chunk in self._chunks
+        ]

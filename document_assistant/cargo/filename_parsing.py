@@ -1,63 +1,60 @@
-"""Parse policy/ДС/declaration metadata out of file names.
+"""Parse policy/ДС/declaration metadata out of file names, per the actual
+customer convention:
 
-ADJUST ME: these patterns are best-effort defaults, not a confirmed customer
-convention. Real policy/ДС/declaration file names should be used to tune the
-regexes here before going to production — the rest of the pipeline does not
-depend on their internals, only on the parsed result.
+    {policy_folder}/
+    ├── ГП ... .docx              — general policy, filename starts with "ГП"
+    ├── ДС/                       — subfolder holding all addenda
+    │   ├── ДС 1 (п.9).docx       — ДС number 1, amends clause 9
+    │   ├── ДС 2 (п.5).docx       — ДС number 2, amends clause 5
+    │   └── ДС 3 (п.9, п. 7).docx — ДС number 3, amends clauses 9 and 7
+    └── Декларации/...
+
+ADJUST ME if real files deviate from this — these are small, isolated
+regexes, easy to retune without touching the rest of the pipeline.
 """
 import re
-from datetime import date
 from pathlib import Path
 
 from document_assistant.cargo.models import PolicySource
 
 
 class PolicyFilenameParser:
-    """Classifies a file in the policy folder as the general policy or a ДС,
-    and extracts the ДС number/effective date from its file name.
-    """
+    _POLICY_RE = re.compile(r"^\s*ГП\b", re.IGNORECASE)
+    _DS_NUMBER_RE = re.compile(r"ДС\s*(?P<num>\d+)", re.IGNORECASE)
+    _PARENTHETICAL_RE = re.compile(r"\(([^)]+)\)")
+    _CLAUSE_NUMBER_RE = re.compile(r"п\.?\s*(\d+(?:\.\d+)*)", re.IGNORECASE)
 
-    _DS_RE = re.compile(
-        r"(?:ДС|доп\.?\s*согл\w*|дополнительн\w*\s+соглашени\w*|Addendum)"
-        r"\s*(?:№|No\.?|N)?\s*(?P<num>\d+)"
-        r"(?:\s*от\s*(?P<date>\d{1,2}[.\-]\d{1,2}[.\-]\d{2,4}))?",
-        re.IGNORECASE,
-    )
-    _POLICY_KEYWORDS = ("ген. полис", "ген.полис", "генеральный полис", "генерального полиса")
-    _DATE_FORMATS = ("%d.%m.%Y", "%d-%m-%Y", "%d.%m.%y", "%d-%m-%y")
-
-    def parse(self, file_path: str) -> PolicySource | None:
+    def parse_policy(self, file_path: str) -> PolicySource | None:
+        """Recognizes the general policy file: name starts with "ГП"."""
         name = Path(file_path).stem
-        lowered = name.lower()
-
-        ds_match = self._DS_RE.search(name)
-        if ds_match:
-            valid_from = self._parse_date(ds_match.group("date")) if ds_match.group("date") else None
-            return PolicySource(
-                kind="ds",
-                file_path=file_path,
-                ds_number=int(ds_match.group("num")),
-                valid_from=valid_from,
-                raw_filename=name,
-            )
-
-        if any(kw in lowered for kw in self._POLICY_KEYWORDS):
+        if self._POLICY_RE.match(name):
             return PolicySource(kind="policy", file_path=file_path, raw_filename=name)
-
         return None
 
-    def _parse_date(self, raw: str) -> date | None:
-        normalized = raw.replace("-", ".")
-        parts = normalized.split(".")
-        if len(parts) != 3:
+    def parse_ds(self, file_path: str) -> PolicySource | None:
+        """Recognizes one ДС file: "ДС {number} (п.{clause}[, п.{clause}...])".
+
+        Callers are expected to only call this on files already known to
+        live in the ДС folder — the number pattern alone is the only
+        requirement, no "ДС" keyword confirmation needed beyond that.
+        """
+        name = Path(file_path).stem
+        num_match = self._DS_NUMBER_RE.search(name)
+        if not num_match:
             return None
-        day, month, year = parts
-        if len(year) == 2:
-            year = "20" + year
-        try:
-            return date(int(year), int(month), int(day))
-        except ValueError:
-            return None
+
+        clause_numbers: list[str] = []
+        paren_match = self._PARENTHETICAL_RE.search(name)
+        if paren_match:
+            clause_numbers = self._CLAUSE_NUMBER_RE.findall(paren_match.group(1))
+
+        return PolicySource(
+            kind="ds",
+            file_path=file_path,
+            ds_number=int(num_match.group("num")),
+            clause_numbers=clause_numbers,
+            raw_filename=name,
+        )
 
 
 class DeclarationFilenameParser:

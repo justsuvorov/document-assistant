@@ -1,6 +1,5 @@
 import hashlib
 import json
-from datetime import date
 from pathlib import Path
 
 from document_assistant.cargo.models import PolicyClause, PolicySource, RulesMatrix
@@ -39,7 +38,6 @@ class RulesMatrixCache:
                 effective_text=c["effective_text"],
                 source_label=c["source_label"],
                 source_file=c["source_file"],
-                effective_from=date.fromisoformat(c["effective_from"]) if c.get("effective_from") else None,
             )
             for c in payload.get("clauses", [])
         ]
@@ -62,7 +60,6 @@ class RulesMatrixCache:
                     "effective_text": c.effective_text,
                     "source_label": c.source_label,
                     "source_file": c.source_file,
-                    "effective_from": c.effective_from.isoformat() if c.effective_from else None,
                 }
                 for c in matrix.clauses
             ],

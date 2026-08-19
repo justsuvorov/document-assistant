@@ -27,11 +27,30 @@ class EstimateRequest(BaseModel):
 
 
 class ReconcileRequest(BaseModel):
-    """Сверка деклараций с генеральным полисом и дополнительными соглашениями (ДС)."""
+    """Сверка деклараций с генеральным полисом и дополнительными соглашениями (ДС).
+
+    По умолчанию генеральный полис ищется в policy_folder как файл "ГП ...",
+    а ДС — в подпапке policy_folder/ДС/ (файлы вида "ДС 3 (п.9, п. 7)").
+    Оба пути можно переопределить явно через policy_file_override/ds_folder_override.
+
+    declaration_paths может отсутствовать — тогда декларации берутся из
+    подпапки policy_folder/Декларации/ (рекурсивно, включая помесячные
+    подпапки). Каждый элемент declaration_paths может быть как путём к
+    файлу, так и путём к папке (папка сканируется рекурсивно).
+    """
     request_id: int = Field(..., description="Уникальный ID запроса")
     user_name: Optional[str] = Field(None, description="Имя пользователя (опционально)")
     policy_folder: str = Field(..., description="Путь к папке с генеральным полисом и ДС")
-    declaration_paths: list[str] = Field(..., description="Пути к файлам деклараций для сверки")
+    policy_file_override: Optional[str] = Field(
+        None, description="Явный путь к файлу ген.полиса (переопределяет автопоиск файла 'ГП ...')"
+    )
+    ds_folder_override: Optional[str] = Field(
+        None, description="Явный путь к папке с ДС (переопределяет папку 'ДС' по умолчанию)"
+    )
+    declaration_paths: Optional[list[str]] = Field(
+        None,
+        description="Пути к файлам и/или папкам деклараций. Пусто = папка 'Декларации' в policy_folder",
+    )
     special_conditions_path: Optional[str] = Field(
         None, description="Путь к файлу особых условий клиента (опционально)"
     )

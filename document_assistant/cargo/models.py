@@ -1,28 +1,31 @@
 from dataclasses import dataclass, field
-from datetime import date
 
 
 @dataclass
 class PolicySource:
-    """A file discovered in the policy folder: the general policy itself or one ДС."""
-    kind: str                       # "policy" | "ds"
+    """A file discovered for the policy folder: the general policy itself
+    (filename starts with "ГП") or one ДС from the "ДС" subfolder (filename
+    like "ДС 3 (п.9, п. 7)" — the parenthetical part names the clause
+    numbers this ДС amends).
+    """
+    kind: str                             # "policy" | "ds"
     file_path: str
     ds_number: int | None = None
-    valid_from: date | None = None
+    clause_numbers: list[str] = field(default_factory=list)   # e.g. ["9", "7"], only for kind="ds"
     raw_filename: str = ""
 
     def sort_key(self) -> tuple:
-        """Ascending precedence order: policy first, then ДС by (valid_from, ds_number)."""
+        """Ascending precedence order: policy first, then ДС by ds_number."""
         if self.kind == "policy":
-            return (date.min, -1)
-        return (self.valid_from or date.min, self.ds_number or 0)
+            return (-1,)
+        return (self.ds_number or 0,)
 
     @property
     def label(self) -> str:
         if self.kind == "policy":
             return "Ген. полис"
-        date_part = f" от {self.valid_from:%d.%m.%Y}" if self.valid_from else ""
-        return f"ДС №{self.ds_number}{date_part}"
+        clauses_part = f" (п.{', п.'.join(self.clause_numbers)})" if self.clause_numbers else ""
+        return f"ДС {self.ds_number}{clauses_part}"
 
 
 @dataclass
@@ -31,9 +34,8 @@ class PolicyClause:
     clause_id: str
     clause_title: str
     effective_text: str
-    source_label: str               # e.g. "Ген. полис" or "ДС №5 от 12.03.2025"
+    source_label: str               # e.g. "Ген. полис" or "ДС 3 (п.9, п. 7)"
     source_file: str
-    effective_from: date | None = None
 
 
 @dataclass

@@ -10,6 +10,7 @@ a = Analysis(
         ('normative_base', 'normative_base'),
         ('examples', 'examples'),
         ('.env', '.'),
+        ('document_assistant/cargo/templates', 'document_assistant/cargo/templates'),
     ],
     hiddenimports=[
         'fastapi',
@@ -26,6 +27,7 @@ a = Analysis(
         'document_assistant.core',
         'document_assistant.reports',
         'document_assistant.services',
+        'document_assistant.cargo',
     ],
     collect_submodules=['document_assistant'],
     hookspath=[],

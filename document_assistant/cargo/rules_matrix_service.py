@@ -22,11 +22,15 @@ class RulesMatrixService:
     def default(cls) -> "RulesMatrixService":
         return cls()
 
-    def get_or_build(self, policy_folder: str, force_rebuild: bool = False) -> tuple[RulesMatrix, bool]:
+    def get_or_build(
+        self,
+        policy_folder: str,
+        policy_file_override: str | None = None,
+        ds_folder_override: str | None = None,
+        force_rebuild: bool = False,
+    ) -> tuple[RulesMatrix, bool]:
         """Returns (matrix, cache_hit)."""
-        sources = self._scanner.scan(policy_folder)
-        if not sources:
-            raise ValueError(f"В папке полиса не найдено ни ген.полиса, ни ДС: {policy_folder}")
+        sources = self._scanner.scan(policy_folder, policy_file_override, ds_folder_override)
 
         fingerprint = self._cache.fingerprint(sources)
 
