@@ -16,7 +16,7 @@ class PostProcessor:
         ...summary text after the table...
     """
 
-    def report(self, raw_text: str) -> InsuranceReport:
+    def report(self, raw_text: str, chunk_index: int | None = None) -> InsuranceReport:
         if not raw_text:
             return InsuranceReport(raw_text=raw_text)
 

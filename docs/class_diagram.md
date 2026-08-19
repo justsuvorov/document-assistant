@@ -173,11 +173,28 @@ classDiagram
 
 # Диаграмма классов — сверка деклараций с ген. полисом (cargo)
 
-Второй, независимый пайплайн (`document_assistant/cargo/`). Использует парсеры (`DataParser`), `TextEncoder`, `AIModel`/`ModelFactory`, `DocumentChunker` и `MarkdownTableParser` из `core`/`ai` напрямую — без изменений в их интерфейсах.
+Второй пайплайн (`document_assistant/cargo/`), **не** параллельный оркестратор: каждый вызов ИИ (извлечение пунктов из документа полиса/ДС, сверка одной декларации) выполняется через `AIAssistantService` — тот же класс, что использует ДМС-пайплайн (`services/assistant.py`), а не отдельная копия retry/чанк-цикла. `RulesMatrixBuilder` и `CargoReconciliationService` собирают cargo-специфичные preprocessor/postprocessor/report_export и передают их в `AIAssistantService`; `ClauseMerger` (приоритет ДС) и запись в файл — единственная логика, которая реально уникальна для cargo.
+
+Переиспользуются напрямую, без изменений интерфейсов: `DataParser`, `TextEncoder`, `AIModel`/`ModelFactory`, `DocumentChunker`, `MarkdownTableParser`, `ProcessingTask` — и, что важнее, базовый класс `Preprocessor` (`ai/preprocessor.py`, оба cargo-препроцессора его наследуют) и абстрактный `ReportWriter` (`reports/writers.py`, `ReconciliationExcelWriter` — вторая его реализация наряду с `ExcelReportWriter`/`WordReportWriter`).
 
 ```mermaid
 classDiagram
     direction TB
+
+    %% ── Shared orchestrator (services/assistant.py) ────────────────────────────
+    class AIAssistantService {
+        +result(max_chunks_override) dict
+    }
+
+    class Preprocessor {
+        <<abstract>>
+        +queries() list~str~
+    }
+
+    class ReportWriter {
+        <<abstract>>
+        +write(report, output_path, source_path) Path
+    }
 
     %% ── API ──────────────────────────────────────────────────────────────────
     class ReconcileRequest {
@@ -213,6 +230,11 @@ classDiagram
 
     class RulesMatrixBuilder {
         +build(policy_folder, sources) RulesMatrix
+        -_extract_candidates(source) list~RawClause~
+    }
+
+    class ClauseExtractionPreprocessor {
+        +queries() list~str~
     }
 
     class ClauseMerger {
@@ -225,6 +247,16 @@ classDiagram
 
     class MatrixPostProcessor {
         +parse(raw_text) list~RawClause~
+        +report(raw_text, chunk_index) CandidateBatch
+    }
+
+    class CandidateBatch {
+        +rows: list~RawClause~
+        +merge(batches)$ CandidateBatch
+    }
+
+    class CandidateReportExport {
+        +response(batch) dict
     }
 
     class RulesMatrix {
@@ -263,17 +295,26 @@ classDiagram
     }
 
     %% ── Reconciliation ───────────────────────────────────────────────────────
+    class CargoReconciliationService {
+        +result(request) dict
+        -_process_declaration(decl_path, request, rules_matrix_block) dict
+    }
+
+    class DeclarationPreprocessor {
+        +queries() list~str~
+    }
+
     class ReconciliationPromptEngine {
         +build(rules_matrix_block, special_conditions, source_text) str
     }
 
     class ReconciliationPostProcessor {
-        +parse(raw_text, declaration_number) ReconciliationReport
+        +report(raw_text, chunk_index) ReconciliationReport
     }
 
     class ReconciliationReport {
         +rows: list~ReconciliationRow~
-        +merge(declaration_number, reports)$ ReconciliationReport
+        +merge(reports)$ ReconciliationReport
     }
 
     class ReconciliationRow {
@@ -285,7 +326,11 @@ classDiagram
     }
 
     class ReconciliationExcelWriter {
-        +write(report, output_path, special_conditions_text) Path
+        +write(report, output_path, source_path) Path
+    }
+
+    class CargoReportExport {
+        +response(report) dict
     }
 
     class ReconciliationOutputResolver {
@@ -296,9 +341,21 @@ classDiagram
         +warn_if_mismatched(declaration_path, period_start)$ str
     }
 
-    class CargoReconciliationService {
-        +result(request) dict
-    }
+    %% ── Inheritance ──────────────────────────────────────────────────────────
+    Preprocessor  <|-- ClauseExtractionPreprocessor
+    Preprocessor  <|-- DeclarationPreprocessor
+    ReportWriter  <|-- ReconciliationExcelWriter
+
+    %% ── AIAssistantService runs per policy/ДС document and per declaration ──
+    AIAssistantService ..> ClauseExtractionPreprocessor : preprocessor
+    AIAssistantService ..> MatrixPostProcessor : postprocessor
+    AIAssistantService ..> CandidateReportExport : report_export
+    AIAssistantService ..> CandidateBatch : report_merge
+
+    AIAssistantService ..> DeclarationPreprocessor : preprocessor
+    AIAssistantService ..> ReconciliationPostProcessor : postprocessor
+    AIAssistantService ..> CargoReportExport : report_export
+    AIAssistantService ..> ReconciliationReport : report_merge
 
     %% ── Composition ──────────────────────────────────────────────────────────
     RulesMatrixService   *-- PolicyFolderScanner
@@ -307,20 +364,21 @@ classDiagram
     RulesMatrixBuilder   *-- MatrixPromptEngine
     RulesMatrixBuilder   *-- MatrixPostProcessor
     RulesMatrixBuilder   *-- ClauseMerger
+    RulesMatrixBuilder   ..> AIAssistantService
     RulesMatrix          *-- PolicyClause
     PolicyFolderScanner  *-- PolicyFilenameParser
     ClauseMerger         ..> PolicySource
+    CandidateReportExport ..> CandidateBatch
 
     CargoReconciliationService *-- ReconciliationPromptEngine
-    CargoReconciliationService *-- ReconciliationPostProcessor
-    CargoReconciliationService *-- ReconciliationExcelWriter
     CargoReconciliationService *-- DeclarationTypeClassifier
     CargoReconciliationService *-- DeclarationFilenameParser
+    CargoReconciliationService ..> AIAssistantService
     CargoReconciliationService ..> RulesMatrix
-    CargoReconciliationService ..> DeclarationNumbering
-    CargoReconciliationService ..> ReconciliationOutputResolver
-    CargoReconciliationService ..> PeriodMonthResolver
     CargoReconciliationService ..> SpecialConditionsLoader
+    CargoReportExport ..> ReconciliationOutputResolver
+    CargoReportExport ..> PeriodMonthResolver
+    ReconciliationPostProcessor ..> DeclarationNumbering
     ReconciliationReport *-- ReconciliationRow
     ReconciliationPostProcessor ..> ReconciliationReport
 ```

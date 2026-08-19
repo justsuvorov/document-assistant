@@ -30,7 +30,13 @@ def _status_fill(status: str) -> str:
 # ── Abstract base ─────────────────────────────────────────────────────────────
 
 class ReportWriter(ABC):
-    """Write an InsuranceReport to a file and return the output path."""
+    """Write a report to a file and return the output path.
+
+    Not DMS-specific — see document_assistant/cargo/reconciliation_writer.py
+    for a second implementation (ReconciliationExcelWriter) writing a
+    differently-shaped report to a fixed template instead of InsuranceReport
+    rows onto an annotated copy of the source file.
+    """
 
     HEADERS = [
         "Требование клиента",
@@ -40,7 +46,7 @@ class ReportWriter(ABC):
     ]
 
     @abstractmethod
-    def write(self, report: InsuranceReport, output_path: Path, source_path: Path = None) -> Path:
+    def write(self, report, output_path: Path, source_path: Path = None) -> Path:
         pass
 
 

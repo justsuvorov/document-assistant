@@ -2,27 +2,43 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 from document_assistant.ai.model import AIModel
 from document_assistant.ai.postprocessor import PostProcessor
-from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask
+from document_assistant.ai.preprocessor import Preprocessor, ProcessingTask
 from document_assistant.core.settings import settings
 from document_assistant.reports.report_export import ReportExport
 from document_assistant.reports.report_models import InsuranceReport
 
 
 class AIAssistantService:
+    """Runs a preprocessor's prompts through the model with retry, parses
+    each response, merges the per-chunk results, and exports the final report.
+
+    Not DMS-specific — this is the one orchestrator shared by every pipeline
+    in the app (see document_assistant/cargo/ for the reconciliation
+    pipeline, which reuses this exact class instead of reimplementing the
+    retry/chunk-loop). Any preprocessor/postprocessor/report_export trio that
+    satisfies this shape can be plugged in:
+        preprocessor.queries() -> list[str]                                    (Preprocessor)
+        postprocessor.report(raw_text: str, chunk_index: int | None) -> ReportT  (ReportT needs .rows)
+        report_export.response(report: ReportT) -> dict
+    """
+
     def __init__(
         self,
-        preprocessor: DocumentPreprocessor,
-        postprocessor: PostProcessor,
+        preprocessor: Preprocessor,
+        postprocessor: Any,
         ai_model: AIModel,
-        report_export: ReportExport,
+        report_export: Any,
+        report_merge: Callable[[list], Any] = InsuranceReport.merge,
     ):
         self._preprocessor = preprocessor
         self._postprocessor = postprocessor
         self._model = ai_model
         self._report_export = report_export
+        self._report_merge = report_merge
 
     def result(self, max_chunks_override: int = 0) -> dict:
         queries = self._preprocessor.queries()
@@ -44,7 +60,7 @@ class AIAssistantService:
             for attempt in range(1, max_retries + 1):
                 try:
                     raw_response = self._model.response(query)
-                    report = self._postprocessor.report(raw_response)
+                    report = self._postprocessor.report(raw_response, i)
                     reports.append(report)
                     debug_lines.append(f"## Чанк {i} — {len(report.rows)} строк\n\n{raw_response}")
                     llm_chunks.append({"index": i, "raw_response": raw_response, "rows_parsed": len(report.rows)})
@@ -73,7 +89,7 @@ class AIAssistantService:
 
         # Если есть хоть какие-то успешные результаты, возвращаем их
         if reports:
-            report = InsuranceReport.merge(reports)
+            report = self._report_merge(reports)
             return self._report_export.response(report)
         else:
             # Если вообще ничего не обработалось

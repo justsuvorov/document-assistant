@@ -349,21 +349,30 @@ document_assistant/     — API сервис
 │   ├── report_export.py      — ReportExport
 │   └── report_models.py      — InsuranceReport, ReportRow
 ├── services/
-│   └── assistant.py          — AIAssistantService (оркестрация)
+│   └── assistant.py          — AIAssistantService (единый оркестратор: retry,
+│                                чанк-цикл, merge, export — используется и ДМС-,
+│                                и cargo-пайплайном, см. ниже)
 └── cargo/                — сверка деклараций с ген. полисом (/api/reconcile)
     ├── filename_parsing.py       — разбор имён файлов (полис/ДС/декларация)
     ├── policy_discovery.py       — PolicyFolderScanner
-    ├── rules_matrix_builder.py   — извлечение пунктов + ClauseMerger
+    ├── rules_matrix_builder.py   — по каждому источнику вызывает AIAssistantService,
+    │                                затем ClauseMerger сводит кандидатов в матрицу
     ├── clause_merger.py          — "последний ДС побеждает" (чистая функция)
     ├── rules_matrix_cache.py     — кэш матрицы по папке полиса
     ├── rules_matrix_service.py   — get_or_build с кэшированием
+    ├── preprocessors.py          — DeclarationPreprocessor, ClauseExtractionPreprocessor
+    │                                (наследуют Preprocessor из ai/preprocessor.py)
     ├── declaration_classifier.py — одна перевозка / мультистрочная (без ИИ)
     ├── declaration_numbering.py  — "200" / "200/1" / имя файла результата
     ├── special_conditions.py     — общие + клиентские особые условия
     ├── reconciliation_prompt.py, reconciliation_postprocessor.py
-    ├── reconciliation_writer.py  — запись по фиксированному шаблону
+    ├── reconciliation_writer.py  — ReconciliationExcelWriter(ReportWriter) —
+    │                                вторая реализация ABC из reports/writers.py
+    ├── report_export.py          — CargoReportExport, CandidateReportExport
+    │                                (report_export для AIAssistantService)
     ├── output_paths.py           — путь результата, проверка месячной папки
-    ├── reconciliation_service.py — CargoReconciliationService (оркестрация)
+    ├── reconciliation_service.py — CargoReconciliationService: классифицирует
+    │                                декларацию, строит AIAssistantService на файл
     └── templates/
         └── reconciliation_form.xlsx  — фиксированная форма результата
 
