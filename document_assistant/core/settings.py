@@ -34,7 +34,19 @@ class Settings(BaseSettings):
     normative_base: str = Field(..., alias="NORMATIVE_BASE")
     examples_path: str = Field("", alias="EXAMPLES_PATH")
 
-    @field_validator("normative_base", "examples_path", mode="after")
+    # --- Cargo reconciliation (сверка деклараций с ген. полисом) ---
+    reconciliation_rules_base: str = Field("", alias="RECONCILIATION_RULES_BASE")
+    special_conditions_global_path: str = Field("", alias="SPECIAL_CONDITIONS_GLOBAL_PATH")
+    reconciliation_output_template_path: str = Field("", alias="RECONCILIATION_OUTPUT_TEMPLATE_PATH")
+
+    @field_validator(
+        "normative_base",
+        "examples_path",
+        "reconciliation_rules_base",
+        "special_conditions_global_path",
+        "reconciliation_output_template_path",
+        mode="after",
+    )
     @classmethod
     def resolve_relative_paths(cls, v: str) -> str:
         """Convert relative paths to absolute, relative to project/dist directory."""
@@ -97,17 +109,27 @@ class Settings(BaseSettings):
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
 
+    # --- PROMPT: cargo reconciliation ---
+    matrix_ai_role: str = Field("", alias="MATRIX_AI_ROLE")
+    matrix_prompt_template: str = Field("", alias="MATRIX_PROMPT_TEMPLATE")
+    reconciliation_ai_role: str = Field("", alias="RECONCILIATION_AI_ROLE")
+    reconciliation_prompt_template: str = Field("", alias="RECONCILIATION_PROMPT_TEMPLATE")
+
+    # Формат strftime для названия месячной папки в "Декларации/{месяц}/" (используется
+    # только для предупреждения о несоответствии папки, файлы физически не переносятся)
+    declarations_month_format: str = Field("%Y-%m", alias="DECLARATIONS_MONTH_FORMAT")
+
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    @field_validator("ai_prompt_template", mode="before")
+    @field_validator("ai_prompt_template", "matrix_prompt_template", "reconciliation_prompt_template", mode="before")
     @classmethod
     def unescape_newlines(cls, v: str) -> str:
         """Convert literal \\n sequences from .env into real newlines."""
-        return v.replace("\\n", "\n")
+        return v.replace("\\n", "\n") if v else v
 
 
 settings = Settings()

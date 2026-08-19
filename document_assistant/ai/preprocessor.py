@@ -4,6 +4,7 @@ from pathlib import Path
 
 from document_assistant.ai.encoders import Encoder
 from document_assistant.ai.promt_builders import PromptEngine
+from document_assistant.ai.table_parser import MarkdownTableParser
 from document_assistant.core.parsers import DataParser
 from document_assistant.core.settings import settings
 
@@ -27,8 +28,8 @@ class DocumentChunker:
     """
 
     _NUMBERED = re.compile(r"^\d+\.\s")
-    _TABLE_ROW = re.compile(r"^\|.+\|$")
-    _TABLE_SEP = re.compile(r"^\|[\s\-:|]+\|$")
+    _TABLE_ROW = MarkdownTableParser.TABLE_ROW
+    _TABLE_SEP = MarkdownTableParser.TABLE_SEP
 
     def __init__(self, batch_size: int = 25):
         self._batch_size = batch_size

@@ -24,3 +24,18 @@ class APIRequest(BaseModel):
 class EstimateRequest(BaseModel):
     """Запрос оценки времени обработки файла."""
     file_path: str = Field(..., description="Путь к файлу клиента в контейнере")
+
+
+class ReconcileRequest(BaseModel):
+    """Сверка деклараций с генеральным полисом и дополнительными соглашениями (ДС)."""
+    request_id: int = Field(..., description="Уникальный ID запроса")
+    user_name: Optional[str] = Field(None, description="Имя пользователя (опционально)")
+    policy_folder: str = Field(..., description="Путь к папке с генеральным полисом и ДС")
+    declaration_paths: list[str] = Field(..., description="Пути к файлам деклараций для сверки")
+    special_conditions_path: Optional[str] = Field(
+        None, description="Путь к файлу особых условий клиента (опционально)"
+    )
+    force_rebuild_matrix: bool = Field(
+        False, description="Игнорировать кэш матрицы актуальных правил и пересчитать заново"
+    )
+    max_chunks: int = Field(0, description="Максимальное число чанков на декларацию (0 = без ограничений)")

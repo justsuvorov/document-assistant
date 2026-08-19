@@ -10,14 +10,11 @@ from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from document_assistant.reports.report_models import InsuranceReport, ReportRow
+from document_assistant.reports.style import GREEN as _GREEN, RED as _RED, YELLOW as _YELLOW, HEADER as _HEADER
+from document_assistant.reports.style import status_fill as _shared_status_fill
 
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-
-_GREEN  = "D6F0D6"   # Есть
-_RED    = "F0D6D6"   # Нет
-_YELLOW = "FFF3CD"   # Частично
-_HEADER = "1F4E79"   # dark blue for header background
+# ── Colour palette (Есть/Нет/Частично) ─────────────────────────────────────────
 
 _STATUS_FILL = {
     "есть":      _GREEN,
@@ -27,7 +24,7 @@ _STATUS_FILL = {
 
 
 def _status_fill(status: str) -> str:
-    return _STATUS_FILL.get(status.lower().strip(), "FFFFFF")
+    return _shared_status_fill(status, _STATUS_FILL)
 
 
 # ── Abstract base ─────────────────────────────────────────────────────────────

@@ -7,8 +7,11 @@ from document_assistant.ai.model import ModelFactory
 from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
 from document_assistant.ai.promt_builders import PromptEngine
+from document_assistant.cargo.reconciliation_service import CargoReconciliationService
+from document_assistant.cargo.rules_matrix_service import RulesMatrixService
+from document_assistant.cargo.special_conditions import SpecialConditionsLoader
 from document_assistant.core.parsers import DataParser
-from document_assistant.core.pydantic_models import APIRequest, EstimateRequest, RebuildRequest
+from document_assistant.core.pydantic_models import APIRequest, EstimateRequest, ReconcileRequest, RebuildRequest
 from document_assistant.core.settings import settings
 from document_assistant.reports.report_export import ReportExport
 from document_assistant.services.assistant import AIAssistantService
@@ -62,6 +65,27 @@ def estimate(request: EstimateRequest):
 def submit(request: APIRequest):
     ai = _build_service(request)
     result = ai.result(max_chunks_override=request.max_chunks)
+    return JSONResponse(content=jsonable_encoder(result))
+
+
+@app.post("/api/reconcile")
+def reconcile(request: ReconcileRequest):
+    """Сверка деклараций с генеральным полисом и ДС."""
+    try:
+        matrix, cache_hit = RulesMatrixService.default().get_or_build(
+            request.policy_folder, force_rebuild=request.force_rebuild_matrix,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    special_conditions_text = SpecialConditionsLoader().load(
+        request.policy_folder, request.special_conditions_path,
+    )
+    service = CargoReconciliationService.default(matrix=matrix, special_conditions_text=special_conditions_text)
+    result = service.result(request)
+    result["matrix"]["cache_hit"] = cache_hit
     return JSONResponse(content=jsonable_encoder(result))
 
 

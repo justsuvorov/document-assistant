@@ -1,10 +1,12 @@
 # Document Assistant — Qwen Release (GUI + API)
 
-Интегрированное решение для автоматического анализа запросов по страхованию ДМС.
+Интегрированное решение с двумя независимыми пайплайнами сверки документов на базе LLM:
+1. **ДМС** — сверка клиентского запроса с нормативной базой программ страхования (`POST /api/update`, статусы Есть/Нет/Частично).
+2. **Сверка деклараций с ген. полисом (cargo)** — сверка деклараций на перевозку груза с генеральным полисом и ДС к нему (`POST /api/reconcile`, статусы Совпадает/Не совпадает/Не знаю). Подробности бизнес-логики — в `BUSINESS.md`.
 
 Включает:
 - **REST API** (FastAPI) для автоматизации обработки документов
-- **Desktop GUI** (PyEdifice + PySide6) для удобной работы пользователя
+- **Desktop GUI** (PyEdifice + PySide6) для удобной работы пользователя (пайплайн ДМС)
 - **Подключение к Qwen** через OpenAI-compatible API
 - **Retry-логика** при ошибках сервиса
 - **Частичные результаты** при обработке больших документов
@@ -121,6 +123,16 @@ LLM_MAX_SECTIONS=300       # макс разделов нормативной б
 LLM_MAX_CHUNKS=0           # 0 = все
 LLM_BATCH_SIZE=25          # размер батча при разбивке
 AI_TEMPERATURE=0.2
+
+# Сверка деклараций с ген. полисом (cargo, /api/reconcile) — опционально
+RECONCILIATION_RULES_BASE=/app/cargo_normative_base
+SPECIAL_CONDITIONS_GLOBAL_PATH=
+RECONCILIATION_OUTPUT_TEMPLATE_PATH=/app/document_assistant/cargo/templates/reconciliation_form.xlsx
+DECLARATIONS_MONTH_FORMAT=%Y-%m
+MATRIX_AI_ROLE="Ты — специалист по анализу..."
+MATRIX_PROMPT_TEMPLATE="{role}\n\n..."
+RECONCILIATION_AI_ROLE="Ты — специалист по сверке..."
+RECONCILIATION_PROMPT_TEMPLATE="{role}\n\n..."
 ```
 
 ---
@@ -203,6 +215,44 @@ AI_TEMPERATURE=0.2
   "user_name": "Иванов И.И."
 }
 ```
+
+### POST /api/reconcile
+
+Сверка деклараций с генеральным полисом и ДС (второй, независимый пайплайн — см. `BUSINESS.md`).
+
+```json
+{
+  "request_id": 1,
+  "policy_folder": "//server/share/Клиент/Ген.полис",
+  "declaration_paths": [
+    "//server/share/Клиент/Декларации/2026-08/200.xlsx"
+  ],
+  "special_conditions_path": null,
+  "force_rebuild_matrix": false
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "request_id": 1,
+  "policy_folder": "//server/share/Клиент/Ген.полис",
+  "matrix": { "clause_count": 42, "fingerprint": "...", "cache_hit": true },
+  "declarations": [
+    {
+      "declaration_path": "//server/share/Клиент/Декларации/2026-08/200.xlsx",
+      "declaration_number": "200",
+      "type": "single",
+      "line_items": 1,
+      "row_count": 6,
+      "output_file": "//server/share/Клиент/Декларации/2026-08/200 – результат проверки.xlsx",
+      "warnings": []
+    }
+  ]
+}
+```
+
+Матрица актуальных правил (генеральный полис + все ДС из `policy_folder`) кэшируется рядом с папкой полиса (`_matrix_cache.json`) и пересчитывается только при изменении состава файлов, либо принудительно через `force_rebuild_matrix: true`.
 
 ---
 
@@ -295,10 +345,27 @@ document_assistant/     — API сервис
 │   └── pydantic_models.py    — Модели API запросов
 ├── reports/
 │   ├── writers.py            — ExcelReportWriter (4-уровневый matching)
+│   ├── style.py               — общая цветовая палитра (ДМС + cargo)
 │   ├── report_export.py      — ReportExport
 │   └── report_models.py      — InsuranceReport, ReportRow
-└── services/
-    └── assistant.py          — AIAssistantService (оркестрация)
+├── services/
+│   └── assistant.py          — AIAssistantService (оркестрация)
+└── cargo/                — сверка деклараций с ген. полисом (/api/reconcile)
+    ├── filename_parsing.py       — разбор имён файлов (полис/ДС/декларация)
+    ├── policy_discovery.py       — PolicyFolderScanner
+    ├── rules_matrix_builder.py   — извлечение пунктов + ClauseMerger
+    ├── clause_merger.py          — "последний ДС побеждает" (чистая функция)
+    ├── rules_matrix_cache.py     — кэш матрицы по папке полиса
+    ├── rules_matrix_service.py   — get_or_build с кэшированием
+    ├── declaration_classifier.py — одна перевозка / мультистрочная (без ИИ)
+    ├── declaration_numbering.py  — "200" / "200/1" / имя файла результата
+    ├── special_conditions.py     — общие + клиентские особые условия
+    ├── reconciliation_prompt.py, reconciliation_postprocessor.py
+    ├── reconciliation_writer.py  — запись по фиксированному шаблону
+    ├── output_paths.py           — путь результата, проверка месячной папки
+    ├── reconciliation_service.py — CargoReconciliationService (оркестрация)
+    └── templates/
+        └── reconciliation_form.xlsx  — фиксированная форма результата
 
 app/                    — Desktop GUI
 ├── main.py                   — Edifice + PySide6
@@ -383,3 +450,6 @@ pip install -r app/requirements.txt
 - [ ] Поддержка более узких RAG стратегий
 - [ ] Метрики обработки (в Prometheus/Grafana)
 - [ ] Мониторинг здоровья Qwen API
+- [ ] cargo: подтвердить формат имён файлов ген.полиса/ДС/декларации на реальных примерах заказчика (см. `CONSTRAINTS.md`)
+- [ ] cargo: извлечение даты начала периода страхования из декларации — для проверки месячной папки «Декларации/{месяц}»
+- [ ] cargo: собрать `tests/cargo/test_cargo_real_files.py` на реальных файлах, когда они появятся

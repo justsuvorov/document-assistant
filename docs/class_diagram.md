@@ -168,3 +168,159 @@ classDiagram
 | `+` | Публичный метод / поле |
 | `-` | Приватный метод / поле |
 | `$` | Статический метод |
+
+---
+
+# Диаграмма классов — сверка деклараций с ген. полисом (cargo)
+
+Второй, независимый пайплайн (`document_assistant/cargo/`). Использует парсеры (`DataParser`), `TextEncoder`, `AIModel`/`ModelFactory`, `DocumentChunker` и `MarkdownTableParser` из `core`/`ai` напрямую — без изменений в их интерфейсах.
+
+```mermaid
+classDiagram
+    direction TB
+
+    %% ── API ──────────────────────────────────────────────────────────────────
+    class ReconcileRequest {
+        +policy_folder: str
+        +declaration_paths: list~str~
+        +special_conditions_path: str
+        +force_rebuild_matrix: bool
+    }
+
+    %% ── Discovery & filenames ────────────────────────────────────────────────
+    class PolicyFilenameParser {
+        +parse(file_path) PolicySource
+    }
+
+    class DeclarationFilenameParser {
+        +parse_number(file_path) str
+    }
+
+    class PolicyFolderScanner {
+        +scan(policy_folder) list~PolicySource~
+    }
+
+    %% ── Rules matrix ─────────────────────────────────────────────────────────
+    class RulesMatrixService {
+        +get_or_build(policy_folder, force_rebuild) tuple
+    }
+
+    class RulesMatrixCache {
+        +fingerprint(sources) str
+        +load(policy_folder) RulesMatrix
+        +save(policy_folder, matrix) Path
+    }
+
+    class RulesMatrixBuilder {
+        +build(policy_folder, sources) RulesMatrix
+    }
+
+    class ClauseMerger {
+        +merge(sources_with_candidates) list~PolicyClause~
+    }
+
+    class MatrixPromptEngine {
+        +build(source_text) str
+    }
+
+    class MatrixPostProcessor {
+        +parse(raw_text) list~RawClause~
+    }
+
+    class RulesMatrix {
+        +clauses: list~PolicyClause~
+        +fingerprint: str
+        +to_prompt_block() str
+    }
+
+    class PolicyClause {
+        +clause_id: str
+        +effective_text: str
+        +source_label: str
+        +effective_from: date
+    }
+
+    class PolicySource {
+        +kind: str
+        +ds_number: int
+        +valid_from: date
+        +sort_key() tuple
+    }
+
+    %% ── Declaration classification ───────────────────────────────────────────
+    class DeclarationTypeClassifier {
+        +classify(markdown_text) DeclarationType
+    }
+
+    class DeclarationNumbering {
+        +row_label(decl_number, line_index)$ str
+        +output_filename(decl_number)$ str
+    }
+
+    %% ── Special conditions ───────────────────────────────────────────────────
+    class SpecialConditionsLoader {
+        +load(policy_folder, explicit_path) str
+    }
+
+    %% ── Reconciliation ───────────────────────────────────────────────────────
+    class ReconciliationPromptEngine {
+        +build(rules_matrix_block, special_conditions, source_text) str
+    }
+
+    class ReconciliationPostProcessor {
+        +parse(raw_text, declaration_number) ReconciliationReport
+    }
+
+    class ReconciliationReport {
+        +rows: list~ReconciliationRow~
+        +merge(declaration_number, reports)$ ReconciliationReport
+    }
+
+    class ReconciliationRow {
+        +declaration_ref: str
+        +field_name: str
+        +matched_policy_clause: str
+        +result: str
+        +comment: str
+    }
+
+    class ReconciliationExcelWriter {
+        +write(report, output_path, special_conditions_text) Path
+    }
+
+    class ReconciliationOutputResolver {
+        +resolve(declaration_path, declaration_number)$ Path
+    }
+
+    class PeriodMonthResolver {
+        +warn_if_mismatched(declaration_path, period_start)$ str
+    }
+
+    class CargoReconciliationService {
+        +result(request) dict
+    }
+
+    %% ── Composition ──────────────────────────────────────────────────────────
+    RulesMatrixService   *-- PolicyFolderScanner
+    RulesMatrixService   *-- RulesMatrixCache
+    RulesMatrixService   *-- RulesMatrixBuilder
+    RulesMatrixBuilder   *-- MatrixPromptEngine
+    RulesMatrixBuilder   *-- MatrixPostProcessor
+    RulesMatrixBuilder   *-- ClauseMerger
+    RulesMatrix          *-- PolicyClause
+    PolicyFolderScanner  *-- PolicyFilenameParser
+    ClauseMerger         ..> PolicySource
+
+    CargoReconciliationService *-- ReconciliationPromptEngine
+    CargoReconciliationService *-- ReconciliationPostProcessor
+    CargoReconciliationService *-- ReconciliationExcelWriter
+    CargoReconciliationService *-- DeclarationTypeClassifier
+    CargoReconciliationService *-- DeclarationFilenameParser
+    CargoReconciliationService ..> RulesMatrix
+    CargoReconciliationService ..> DeclarationNumbering
+    CargoReconciliationService ..> ReconciliationOutputResolver
+    CargoReconciliationService ..> PeriodMonthResolver
+    CargoReconciliationService ..> SpecialConditionsLoader
+    ReconciliationReport *-- ReconciliationRow
+    ReconciliationPostProcessor ..> ReconciliationReport
+```
