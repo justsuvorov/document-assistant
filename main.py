@@ -96,8 +96,12 @@ def _build_reconciliation_service(
 
     task = ProcessingTask(request_id=request.request_id, file_path=decl_path, user_name=request.user_name)
     service = AIAssistantService(
-        preprocessor=DeclarationPreprocessor(chunks, prompt_engine, rules_matrix_block, special_conditions_text),
-        postprocessor=ReconciliationPostProcessor(decl_number, multi=multi),
+        preprocessor=DeclarationPreprocessor(chunks=chunks,
+                                             prompt_engine=prompt_engine,
+                                             rules_matrix_block=rules_matrix_block,
+                                             special_conditions_text=special_conditions_text,
+                                             ),
+        postprocessor=ReconciliationPostProcessor(declaration_number=decl_number, multi=multi),
         ai_model=ModelFactory.create(),
         report_export=CargoReportExport(
             task, decl_number, ReconciliationExcelWriter(special_conditions_text=special_conditions_text),

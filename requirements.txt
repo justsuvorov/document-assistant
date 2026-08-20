@@ -4,5 +4,6 @@ pytest
 httpx
 python-multipart
 openpyxl
+xlrd
 python-docx
 pdfplumber

@@ -18,6 +18,7 @@ a = Analysis(
         'pydantic',
         'pydantic_settings',
         'openpyxl',
+        'xlrd',
         'python-docx',
         'pdfplumber',
         'httpx',
