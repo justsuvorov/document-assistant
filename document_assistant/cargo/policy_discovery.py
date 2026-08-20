@@ -42,6 +42,17 @@ class PolicyFolderScanner:
             )
 
         sources.sort(key=lambda s: s.sort_key())
+
+        if policy_source:
+            print(f"[INFO] Ген. полис: {Path(policy_source.file_path).name}", flush=True)
+        else:
+            print(f"[WARN] Ген. полис не найден в папке: {policy_folder}", flush=True)
+        if ds_sources:
+            ds_list = ", ".join(s.label for s in sorted(ds_sources, key=lambda s: s.sort_key()))
+            print(f"[INFO] Найдено ДС ({len(ds_sources)}): {ds_list}", flush=True)
+        else:
+            print("[INFO] ДС не найдены", flush=True)
+
         return sources
 
     def _find_policy(self, policy_folder: str, override: str | None) -> PolicySource | None:

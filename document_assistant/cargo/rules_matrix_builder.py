@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from document_assistant.ai.encoders import TextEncoder
 from document_assistant.ai.model import AIModel
@@ -55,6 +56,7 @@ class RulesMatrixBuilder:
         )
 
     def _extract_candidates(self, source: PolicySource) -> list[RawClause]:
+        print(f"[INFO] Обработка: {source.label} ({Path(source.file_path).name})", flush=True)
         text = self._encoder.prepared_data(DataParser(source.file_path).origin_data(source.file_path))
         chunks = self._chunker.split(text)
 
@@ -67,4 +69,6 @@ class RulesMatrixBuilder:
             report_merge=CandidateBatch.merge,
         )
         result = service.result()
-        return result["candidates"]
+        candidates = result["candidates"]
+        print(f"[INFO] {source.label}: извлечено пунктов — {len(candidates)}", flush=True)
+        return candidates

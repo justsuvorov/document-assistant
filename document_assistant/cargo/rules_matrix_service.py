@@ -34,10 +34,14 @@ class RulesMatrixService:
 
         fingerprint = self._cache.fingerprint(sources)
 
-        if not force_rebuild:
+        if force_rebuild:
+            print("[INFO] Принудительная пересборка матрицы правил (force_rebuild_matrix=true)", flush=True)
+        else:
             cached = self._cache.load(policy_folder)
             if cached is not None and cached.fingerprint == fingerprint:
+                print(f"[INFO] Матрица правил взята из кэша: {len(cached.clauses)} пунктов", flush=True)
                 return cached, True
+            print("[INFO] Кэш матрицы правил не найден или устарел — строим заново", flush=True)
 
         matrix = self._builder.build(policy_folder, sources)
         matrix.fingerprint = fingerprint

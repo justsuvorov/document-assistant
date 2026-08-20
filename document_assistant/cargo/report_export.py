@@ -44,7 +44,10 @@ class CargoReportExport:
     def response(self, report: ReconciliationReport) -> dict:
         output_path = ReconciliationOutputResolver.resolve(self._task.file_path, self._declaration_number)
         self._writer.write(report, output_path)
+        print(f"[INFO] Декларация №{self._declaration_number}: результат сохранён — {output_path}", flush=True)
         warning = PeriodMonthResolver.warn_if_mismatched(self._task.file_path, period_start=None)
+        if warning:
+            print(f"[WARN] {warning}", flush=True)
 
         return {
             "request_id": self._task.request_id,

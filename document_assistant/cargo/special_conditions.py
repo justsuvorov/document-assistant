@@ -26,6 +26,13 @@ class SpecialConditionsLoader:
         client_path = explicit_path or self._discover(policy_folder)
         client_text = self._loader.load(client_path) if client_path else ""
 
+        if global_text:
+            print(f"[INFO] Особые условия (общие): {settings.special_conditions_global_path}", flush=True)
+        if client_text:
+            print(f"[INFO] Особые условия клиента: {client_path}", flush=True)
+        if not global_text and not client_text:
+            print("[INFO] Особые условия не заданы", flush=True)
+
         parts = []
         if global_text:
             parts.append(f"### Общие особые условия\n\n{global_text}")

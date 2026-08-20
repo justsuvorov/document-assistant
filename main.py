@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -88,11 +90,17 @@ def _build_reconciliation_service(
     (not inside DeclarationPreprocessor) because ReconciliationPostProcessor
     also needs to know single-vs-multi before AIAssistantService.result() runs.
     """
+    print(f"[INFO] Чтение декларации: {Path(decl_path).name}", flush=True)
     text = TextEncoder().prepared_data(DataParser(decl_path).origin_data(decl_path))
     decl_number = DeclarationFilenameParser().parse_number(decl_path) or "UNKNOWN"
     decl_type = DeclarationTypeClassifier().classify(text)
     multi = decl_type is DeclarationType.MULTI
     chunks = DocumentChunker(batch_size=1).split(text) if multi else [text]
+    print(
+        f"[INFO] Декларация №{decl_number}: тип={decl_type.value}, "
+        f"строк перевозки={len(chunks)}",
+        flush=True,
+    )
 
     task = ProcessingTask(request_id=request.request_id, file_path=decl_path, user_name=request.user_name)
     service = AIAssistantService(
@@ -114,6 +122,7 @@ def _build_reconciliation_service(
 @app.post("/api/reconcile")
 def reconcile(request: ReconcileRequest):
     """Сверка деклараций с генеральным полисом и ДС."""
+    print(f"[INFO] ═══ Сверка деклараций: {request.policy_folder} ═══", flush=True)
     try:
         matrix, cache_hit = RulesMatrixService.default().get_or_build(
             request.policy_folder,
@@ -132,6 +141,9 @@ def reconcile(request: ReconcileRequest):
             status_code=422,
             detail="Не найдено ни одной декларации для сверки (папка 'Декларации' пуста или не существует)",
         )
+    print(f"[INFO] Деклараций к сверке: {len(declaration_paths)}", flush=True)
+    for p in declaration_paths:
+        print(f"[INFO]   - {Path(p).name}", flush=True)
 
     special_conditions_text = SpecialConditionsLoader().load(
         request.policy_folder, request.special_conditions_path,
@@ -152,6 +164,13 @@ def reconcile(request: ReconcileRequest):
         decl_result["type"] = decl_type.value
         decl_result["line_items"] = chunk_count if decl_type is DeclarationType.MULTI else 1
         declarations_out.append(decl_result)
+
+    print(
+        f"[INFO] ═══ Сверка завершена: {len(declarations_out)} деклараций, "
+        f"матрица правил — {len(matrix.clauses)} пунктов "
+        f"({'из кэша' if cache_hit else 'построена заново'}) ═══",
+        flush=True,
+    )
 
     result = {
         "request_id": request.request_id,

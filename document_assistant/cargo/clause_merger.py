@@ -33,6 +33,8 @@ class ClauseMerger:
         index_by_text: dict[str, int] = {}
 
         for source, candidates in sources_with_candidates:
+            added = 0
+            overwritten: list[str] = []
             for raw in candidates:
                 text_key = self._normalize(raw.clause_id)
                 if not text_key:
@@ -62,13 +64,25 @@ class ClauseMerger:
                 if position is None:
                     merged.append(clause)
                     position = len(merged) - 1
+                    added += 1
                 else:
+                    overwritten.append(merged[position].clause_id)
                     merged[position] = clause
 
                 if number_key:
                     index_by_number[number_key] = position
                 index_by_text[text_key] = position
 
+            if overwritten:
+                print(
+                    f"[INFO] {source.label}: {added} новых пункт(ов), "
+                    f"перекрыты предыдущей редакцией — {', '.join(overwritten)}",
+                    flush=True,
+                )
+            else:
+                print(f"[INFO] {source.label}: {added} новых пункт(ов)", flush=True)
+
+        print(f"[INFO] Итоговая матрица правил: {len(merged)} действующих пунктов", flush=True)
         return merged
 
     @classmethod
