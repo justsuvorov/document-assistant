@@ -53,6 +53,8 @@ class ReconciliationExcelWriter(ReportWriter):
             self._write_headers(ws)
 
         self._write_rows(ws, report)
+        self._autofit_column_widths(ws)
+        ws.freeze_panes = "A2"
 
         if self._special_conditions_text:
             self._write_notes_sheet(wb, self._special_conditions_text)
@@ -80,6 +82,23 @@ class ReconciliationExcelWriter(ReportWriter):
                 if col == 4:  # Результат проверки — coloured
                     cell.fill = fill
             row_idx += 1
+
+    @staticmethod
+    def _autofit_column_widths(ws, min_width: int = 10, max_width: int = 60) -> None:
+        """Size each column to its content (longest line per cell), capped so a
+        single verbose comment can't blow the whole column out — long text
+        still wraps thanks to the ``wrap_text`` alignment set in _write_rows."""
+        widths: dict[int, int] = {}
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is None:
+                    continue
+                longest_line = max((len(line) for line in str(cell.value).split("\n")), default=0)
+                widths[cell.column] = max(widths.get(cell.column, 0), longest_line)
+
+        for col, length in widths.items():
+            width = max(min_width, min(length + 2, max_width))
+            ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = width
 
     @staticmethod
     def _write_notes_sheet(wb, text: str) -> None:
