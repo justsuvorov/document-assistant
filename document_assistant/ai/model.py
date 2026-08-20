@@ -214,7 +214,7 @@ class VskAIModel(AIModel):
             headers={"Authorization": f"Bearer {self._api_key}"},
             json={
                 "model": self._model_name,
-              #  "messages": [{"role": "user", "content": query}],
+                "messages": [{"role": "user", "content": query}],
                 "prompt": query,
                 "thinking_token_budget": settings.vsk_thinking_token_budget,
                 "max_tokens": settings.vsk_max_tokens,

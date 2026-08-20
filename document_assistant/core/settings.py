@@ -36,7 +36,10 @@ class Settings(BaseSettings):
 
     # --- Cargo reconciliation (сверка деклараций с ген. полисом) ---
     reconciliation_rules_base: str = Field("", alias="RECONCILIATION_RULES_BASE")
-    special_conditions_global_path: str = Field("", alias="SPECIAL_CONDITIONS_GLOBAL_PATH")
+    special_conditions_global_path: str = Field(
+        "",
+        alias="SPECIAL_CONDITIONS_GLOBAL_PATH",
+    )
     reconciliation_output_template_path: str = Field("", alias="RECONCILIATION_OUTPUT_TEMPLATE_PATH")
 
     @field_validator(
@@ -98,7 +101,7 @@ class Settings(BaseSettings):
     qwen_num_ctx: int = Field(400_000, alias="QWEN_NUM_CTX")  # полное контекстное окно модели
 
     # --- VSK AI (OpenAI-compatible chat API, /v1/chat/completions) ---
-    vsk_api_url: str = Field("https://llm.ai-api.vsk.ru/v1/chat/completions", alias="VSK_API_URL")
+    vsk_api_url: str = Field("https://llm.ai-api.vsk.ru/v1/completions", alias="VSK_API_URL")
     vsk_api_key: SecretStr | None = Field("", alias="VSK_API_KEY")
     vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
     vsk_max_tokens: int = Field(100_000, alias="VSK_MAX_TOKENS")

@@ -82,6 +82,15 @@ class TestDataParser:
         parser = DataParser(str(excel_file))
         assert isinstance(parser.parser, Excel)
 
+    def test_routes_xlsm_to_excel(self, xlsm_file):
+        parser = DataParser(str(xlsm_file))
+        assert isinstance(parser.parser, Excel)
+
+    def test_reads_xlsm_content(self, xlsm_file):
+        result = DataParser(str(xlsm_file)).origin_data(str(xlsm_file))
+        assert "ДТП" in result
+        assert "Пожар" in result
+
     def test_routes_docx_to_word(self, word_file):
         parser = DataParser(str(word_file))
         assert isinstance(parser.parser, Word)

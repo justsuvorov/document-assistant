@@ -33,6 +33,13 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 NORMATIVE_DIR = BASE_DIR / "normative_base"
 _LOGO_PATH = Path(__file__).parent / "assets" / "vsk_logo.png"
 
+# Отображается справочно на экране "Сверка грузов" — фактический путь настраивается
+# на сервере через SPECIAL_CONDITIONS_GLOBAL_PATH (.env), здесь только для информации
+# оператора: этот файл подключается автоматически к КАЖДОЙ сверке, без выбора в GUI.
+GLOBAL_SPECIAL_CONDITIONS_PATH = (
+    r"\\fstorfs\disk_m\БОС_ФСЦ_УПиСД\ДГ\Информационный\ДпГ УПиСД ФСЦ.xlsm"
+)
+
 # ── Логирование ───────────────────────────────────────────────────────────────
 _LOG_PATH = Path(__file__).parent / "app.log"
 logger.remove()  # Удаляем дефолтный handler
@@ -174,7 +181,7 @@ def DmsScreen(self):
     def pick_normative(_=None):
         path = _open_file_dialog(
             "Нормативная база", str(NORMATIVE_DIR),
-            "Документы (*.xlsx *.xls *.docx *.pdf *.txt)",
+            "Документы (*.xlsx *.xlsm *.xls *.docx *.pdf *.txt)",
         )
         if path:
             set_normative_file(path)
@@ -183,7 +190,7 @@ def DmsScreen(self):
     def pick_client(_=None):
         path = _open_file_dialog(
             "Файл клиента", str(UPLOADS_DIR),
-            "Документы (*.xlsx *.xls *.docx *.pdf)",
+            "Документы (*.xlsx *.xlsm *.xls *.docx *.pdf)",
         )
         if path:
             set_client_file(path)
@@ -440,7 +447,7 @@ def CargoScreen(self):
         path = _open_file_dialog(
             "Файл особых условий (опционально)",
             policy_folder or str(BASE_DIR),
-            "Документы (*.xlsx *.xls *.docx *.pdf *.txt)",
+            "Документы (*.xlsx *.xlsm *.xls *.docx *.pdf *.txt)",
         )
         if path:
             set_special_conditions_file(path)
@@ -454,7 +461,7 @@ def CargoScreen(self):
         paths = _open_files_dialog(
             "Декларации для сверки (можно выбрать несколько)",
             policy_folder or str(BASE_DIR),
-            "Документы (*.xlsx *.xls *.docx *.pdf)",
+            "Документы (*.xlsx *.xlsm *.xls *.docx *.pdf)",
         )
         if paths:
             set_declaration_files(paths)
@@ -466,7 +473,7 @@ def CargoScreen(self):
         paths = _open_files_dialog(
             "Добавить декларации",
             policy_folder or str(BASE_DIR),
-            "Документы (*.xlsx *.xls *.docx *.pdf)",
+            "Документы (*.xlsx *.xlsm *.xls *.docx *.pdf)",
         )
         if paths:
             merged = list(declaration_files)
@@ -577,6 +584,10 @@ def CargoScreen(self):
                 if special_conditions_file:
                     Button(title="✕", on_click=clear_special_conditions,
                            style=small_btn(_DIM))
+            Label(
+                text=f"Общие особые условия (применяются всегда): {GLOBAL_SPECIAL_CONDITIONS_PATH}",
+                style={**value_s(), "color": _MUTED, "margin-top": "8px", "font-size": "12px"},
+            )
 
         # Declarations (multi)
         with VBoxView(style=card()):

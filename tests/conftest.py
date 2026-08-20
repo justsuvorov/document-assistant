@@ -44,6 +44,22 @@ def excel_file(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
+def xlsm_file(tmp_path: Path) -> Path:
+    """Macro-enabled Excel file (.xlsm) — same content as excel_file."""
+    path = tmp_path / "test.xlsm"
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "Данные"
+    ws.append(["Страховой случай", "Покрытие", "Лимит"])
+    ws.append(["ДТП", "Полное", "1 000 000"])
+    ws.append(["Пожар", "Частичное", "500 000"])
+
+    wb.save(path)
+    return path
+
+
+@pytest.fixture()
 def excel_file_all_empty(tmp_path: Path) -> Path:
     """Excel file where every sheet is empty."""
     path = tmp_path / "empty.xlsx"

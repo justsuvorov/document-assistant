@@ -232,6 +232,7 @@ class DataParser:
 
     _SUPPORTED: dict[str, type[Parser]] = {
         ".xlsx": Excel,
+        ".xlsm": Excel,
         ".xls":  Excel,
         ".docx": Word,
         ".doc":  Word,
