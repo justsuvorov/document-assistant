@@ -10,7 +10,7 @@ a = Analysis(
         ('normative_base', 'normative_base'),
         ('examples', 'examples'),
         ('.env', '.'),
-        ('document_assistant/cargo/templates', 'document_assistant/cargo/templates'),
+        ('document_assistant/cargo/templates/reconciliation_form.xlsx', 'document_assistant/cargo/templates'),
     ],
     hiddenimports=[
         'fastapi',
