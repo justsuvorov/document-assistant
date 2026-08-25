@@ -55,6 +55,12 @@ class PolicyFolderScanner:
 
         return sources
 
+    def find_policy_file(self, policy_folder: str, override: str | None = None) -> PolicySource | None:
+        """Public entry point for callers that only need the ГП file (not the
+        full ДС scan) — e.g. special-conditions lookup, which needs the policy
+        document's own text to identify which policy is being reconciled."""
+        return self._find_policy(policy_folder, override)
+
     def _find_policy(self, policy_folder: str, override: str | None) -> PolicySource | None:
         if override:
             path = Path(override)

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from document_assistant.ai.promt_builders import NormativeBaseLoader
 
 
@@ -18,6 +20,21 @@ class ReconciliationPromptEngine:
         self._role = role
         self._template = template
         self._reconciliation_logic = NormativeBaseLoader().load(rules_base_path)
+
+        if not rules_base_path:
+            print("[INFO] Логика сверки (RECONCILIATION_RULES_BASE): путь не задан в .env", flush=True)
+        elif not Path(rules_base_path).exists():
+            print(
+                f"[WARN] Логика сверки (RECONCILIATION_RULES_BASE): путь задан, но не найден — "
+                f"{rules_base_path}",
+                flush=True,
+            )
+        else:
+            print(
+                f"[INFO] Логика сверки (RECONCILIATION_RULES_BASE): загружено "
+                f"{len(self._reconciliation_logic)} символов из {rules_base_path}",
+                flush=True,
+            )
 
     def build(self, rules_matrix_block: str, special_conditions: str, source_text: str) -> str:
         try:
