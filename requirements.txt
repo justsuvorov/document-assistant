@@ -1,3 +1,4 @@
+# --- Парсеры документов и конфиг (доменная логика, без изменений) ---
 pydantic_settings
 pandas
 pytest
@@ -6,3 +7,24 @@ python-multipart
 openpyxl
 python-docx
 pdfplumber
+
+# --- Веб ---
+fastapi
+uvicorn[standard]
+gunicorn
+jinja2
+itsdangerous          # подпись cookie-сессии (SessionMiddleware)
+
+# --- Хранилище S3 / MinIO ---
+boto3
+
+# --- Очередь задач ---
+arq
+
+# --- База метаданных сессий ---
+sqlalchemy[asyncio]>=2.0
+asyncpg               # Postgres (compose/прод)
+aiosqlite             # SQLite (локальная разработка)
+
+# --- Авторизация Keycloak (OIDC) ---
+authlib

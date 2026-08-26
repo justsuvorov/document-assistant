@@ -12,15 +12,54 @@
 
 | Компонент | Описание |
 |---|---|
-| `main.py` | FastAPI-сервер, эндпоинты `/api/update`, `/api/estimate`, `/api/rebuild` |
-| `docker-compose.yaml` | Контейнер `api` (FastAPI :8001) с подключением к Qwen |
+| `main.py` | FastAPI-приложение: страницы, API сессий, авторизация |
+| `document_assistant/web/` | Роуты API и HTML-страницы (Jinja2 + HTMX) |
+| `document_assistant/worker/` | arq-воркер: вся длинная LLM-обработка |
+| `document_assistant/storage/` | S3/MinIO — загрузка, скачивание, presigned-ссылки |
+| `document_assistant/db/` | Таблица `sessions` (SQLAlchemy async) |
+| `document_assistant/auth/` | Keycloak OIDC, `get_current_user()` |
+| `docker-compose.yaml` | `api`, `worker`, `postgres`, `redis`, `minio` |
+
+Десктопный GUI (pyedifice/PySide6) убран — его заменил веб-интерфейс.
+
+---
+
+## Многопользовательский режим
+
+```
+Браузер ──► /auth/login ──► Keycloak ──► /auth/callback ──► httponly-cookie с JWT
+   │
+   ├─ POST /api/sessions   файлы ──► S3, запись sessions(status=queued) ──► arq
+   │        └── отвечает сразу: {"session_id": "..."}
+   │
+   ├─ GET  /api/sessions/{id}   статус; при done — presigned download_url
+   │        └── страница опрашивает его через HTMX каждые 2 секунды
+   │
+   └─ arq worker: S3 ──► временная папка ──► AIAssistantService.result() ──► S3
+            └── статус в БД: queued → processing → done | error
+```
+
+Разграничение доступа:
+
+- `user_id` — это claim `sub` из токена Keycloak.
+- Ключи в S3 начинаются с `user_id`: `{user_id}/{session_id}/input/<файл>`.
+- Все выборки сессий фильтруются по `user_id`; чужой `session_id` даёт **404**.
+- Бакет закрытый — файлы отдаются только по presigned-ссылке с ограниченным TTL.
+
+Файлы на диск контейнера не кладутся: они скачиваются во временную папку на
+время обработки и удаляются вместе с ней.
+
+### Локальная разработка без Keycloak
+
+`AUTH_DISABLED=true` — все запросы идут от пользователя `AUTH_DEV_USER_ID`,
+Keycloak не требуется. **В проде обязательно `false`.**
 
 ---
 
 ## Архитектура
 
 ```
-POST /api/update
+arq-задача (или POST /api/sessions → очередь)
        │
        ▼
  AIAssistantService
@@ -216,59 +255,103 @@ LLM_BATCH_SIZE=25
 AI_TEMPERATURE=0.2
 ```
 
+Плюс переменные хранилища, БД, очереди и Keycloak — полный список
+с комментариями в `.env.example`.
+
 ### 2. Запустить через Docker Compose
 
 ```bash
 docker compose up -d
 ```
 
-Контейнер:
-- `api` — FastAPI на порту `8001`
+Контейнеры:
+
+| Сервис | Назначение |
+|---|---|
+| `api` | Веб-приложение, порт `8001` |
+| `worker` | arq-воркер, LLM-обработка |
+| `postgres` | Метаданные сессий |
+| `redis` | Очередь задач |
+| `minio` | S3-совместимое хранилище (`:9000`, консоль `:9001`) |
+
+Если в компании уже есть Postgres/Redis/S3 — уберите соответствующие сервисы
+из `docker-compose.yaml` и укажите `DATABASE_URL`, `REDIS_URL`,
+`S3_ENDPOINT_URL` в `.env`.
 
 ### 3. Проверить здоровье
 
 ```bash
-curl http://localhost:8001/docs
+curl http://localhost:8001/healthz
 ```
+
+Интерфейс — http://localhost:8001/, документация API — `/docs`.
 
 ---
 
 ## API
 
-### `POST /api/update`
+Все эндпоинты требуют авторизации и работают только с сессиями текущего
+пользователя.
 
-Запускает обработку файла, возвращает путь к результату.
+### `POST /api/sessions`
 
-**Тело запроса:**
+Принимает файлы, ставит задачу в очередь и **сразу** возвращает `session_id`.
+LLM здесь не вызывается.
+
+**Тело:** `multipart/form-data`
+
+| Поле | Обяз. | Описание |
+|---|---|---|
+| `client_file` | да | Файл клиента (.xlsx / .xls / .docx / .doc / .pdf) |
+| `normative_file` | нет | Своя нормативная база. Без неё берётся `NORMATIVE_BASE` |
+| `max_chunks` | нет | Максимум чанков, `0` — весь документ |
+
+**Ответ (202):**
 ```json
-{
-  "request_id": 1,
-  "file_path": "/app/uploads/client.xlsx",
-  "user_name": "Иванов И.И.",
-  "max_chunks": 0
-}
+{ "session_id": "8f3c...", "status": "queued" }
 ```
-`max_chunks=0` — обработать все чанки (по умолчанию). Положительное число ограничивает обработку.
+
+---
+
+### `GET /api/sessions/{id}`
+
+Статус сессии. Чужой `session_id` → **404**.
 
 **Ответ (200):**
 ```json
 {
-  "request_id": 1,
-  "user_name": "Иванов И.И.",
-  "output_file": "/app/uploads/client_ответ.xlsx"
+  "session_id": "8f3c...",
+  "status": "done",
+  "file_name": "client.xlsx",
+  "chunk_count": 62,
+  "download_url": "https://s3/...?X-Amz-Signature=..."
 }
 ```
+
+`status` — `queued` | `processing` | `done` | `error`.
+`download_url` появляется только при `done`; ссылка живёт `S3_PRESIGN_EXPIRES`
+секунд. При `error` заполнено `error_message`.
+
+---
+
+### `GET /api/sessions`
+
+История сессий текущего пользователя (последние 50).
+
+---
+
+### `POST /api/sessions/{id}/rebuild`
+
+Пересобирает Excel из кэшированного LLM JSON без обращения к модели.
+Пути берутся из записи сессии, а не из запроса. Возвращает `409`, если кэша
+для сессии нет.
 
 ---
 
 ### `POST /api/estimate`
 
-Анализирует файл без вызова LLM, возвращает оценку объёма и времени.
-
-**Тело запроса:**
-```json
-{ "file_path": "/app/uploads/client.xlsx" }
-```
+Оценка объёма и времени без вызова LLM. Принимает `multipart/form-data`
+с полем `client_file`; файл нигде не сохраняется.
 
 **Ответ (200):**
 ```json
@@ -277,23 +360,6 @@ curl http://localhost:8001/docs
   "estimated_seconds": 7440,
   "total_chars": 2144067,
   "processed_chars": 2144067
-}
-```
-
----
-
-### `POST /api/rebuild`
-
-Собирает Excel из кэшированного JSON без повторного вызова LLM.
-Возвращает 422 если `json_path` и `file_path` относятся к разным файлам.
-
-**Тело запроса:**
-```json
-{
-  "request_id": 1,
-  "json_path": "/app/uploads/client_llm_output.json",
-  "file_path": "/app/uploads/client.xlsx",
-  "user_name": "Иванов И.И."
 }
 ```
 
@@ -316,6 +382,20 @@ curl http://localhost:8001/docs
 | `QWEN_MODEL_NAME` | Модель Qwen |
 | `QWEN_MAX_TOKENS` | Максимум токенов в ответе |
 | `QWEN_NUM_CTX` | Контекстное окно в токенах (128 000) |
+| `S3_ENDPOINT_URL` | Адрес S3. Пусто = AWS S3, иначе MinIO/Ceph |
+| `S3_BUCKET` | Имя бакета (создаётся при старте, если его нет) |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Доступы к хранилищу |
+| `S3_USE_PATH_STYLE` | `true` для MinIO и Ceph |
+| `S3_PRESIGN_EXPIRES` | Срок жизни ссылки на скачивание, секунды |
+| `DATABASE_URL` | Postgres (`postgresql+asyncpg://…`) или SQLite (`sqlite+aiosqlite://…`) |
+| `REDIS_URL` | Адрес Redis для очереди arq |
+| `WORKER_MAX_JOBS` | Сколько документов воркер обрабатывает параллельно |
+| `WORKER_JOB_TIMEOUT` | Потолок на одну обработку, секунды |
+| `AUTH_DISABLED` | `true` — работа без Keycloak (только для разработки) |
+| `KEYCLOAK_URL` / `KEYCLOAK_REALM` | Адрес и realm Keycloak |
+| `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` | Учётные данные клиента OIDC |
+| `SESSION_SECRET` | Секрет подписи cookie-сессии |
+| `SESSION_COOKIE_SECURE` | `true`, если приложение работает по HTTPS |
 
 ---
 
@@ -362,7 +442,25 @@ document_assistant/
     writers.py          — ExcelReportWriter (4-уровневый matching, MergedCell), WordReportWriter
   services/
     assistant.py        — AIAssistantService, сохранение JSON/debug, rebuild_from_json
-main.py                 — FastAPI (/api/update, /api/estimate, /api/rebuild)
+    factory.py          — сборка AIAssistantService (общая для API и воркера)
+  storage/
+    s3.py               — S3Storage, схема ключей, presigned-ссылки, workspace()
+  db/
+    models.py           — ProcessingSession (таблица sessions)
+    engine.py           — async-движок SQLAlchemy, init_db()
+    repository.py       — выборки с обязательным фильтром по user_id
+  auth/
+    keycloak.py         — OIDC-клиент, проверка JWT по JWKS
+    dependencies.py     — get_current_user(), require_user_page()
+    routes.py           — /auth/login, /auth/callback, /auth/logout
+  web/
+    api.py              — /api/sessions*, /api/estimate
+    pages.py            — HTML-страницы и HTMX-фрагмент статуса
+    templates/          — Jinja2-шаблоны
+  worker/
+    tasks.py            — arq-задача: S3 → доменный код → S3 → статус в БД
+    queue.py            — постановка задач из API
+main.py                 — FastAPI: роутеры, lifespan, обработка редиректа на логин
 docker-compose.yaml
 .env
 requirements.txt

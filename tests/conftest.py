@@ -8,6 +8,16 @@ os.environ.setdefault("NORMATIVE_BASE", "/tmp/test_normative")
 os.environ.setdefault("AI_ROLE", "Test role")
 os.environ.setdefault("AI_PROMPT_TEMPLATE", "{role} {normative_base} {examples} {source_text}")
 
+# Веб-слой: тесты никогда не должны ходить в рабочую БД или в живой Keycloak.
+# Задаётся здесь, а не в тестовом модуле: settings и движок БД — синглтоны,
+# создаваемые при первом импорте, а conftest грузится раньше тестов.
+import tempfile  # noqa: E402
+
+os.environ["DATABASE_URL"] = (
+    f"sqlite+aiosqlite:///{(Path(tempfile.gettempdir()) / 'da_tests.db').as_posix()}"
+)
+os.environ["AUTH_DISABLED"] = "true"
+
 from openpyxl import Workbook
 from docx import Document
 

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+  <div class="label">Новая обработка</div>
+  <!-- hx-encoding нужен явно: HTMX иначе шлёт форму как urlencoded и файлы
+       до сервера не доедут. -->
+  <form hx-post="/api/sessions"
+        hx-encoding="multipart/form-data"
+        hx-swap="none"
+        hx-on::after-request="if (event.detail.successful) {
+          window.location = '/sessions/' + JSON.parse(event.detail.xhr.responseText).session_id;
+        }">
+    <p>
+      <label class="label" for="client_file">Файл клиента (обязательно)</label>
+      <input id="client_file" type="file" name="client_file" required
+             accept=".xlsx,.xls,.docx,.doc,.pdf">
+    </p>
+    <p>
+      <label class="label" for="normative_file">Нормативная база (опционально)</label>
+      <input id="normative_file" type="file" name="normative_file"
+             accept=".xlsx,.xls,.docx,.doc,.pdf,.md,.txt">
+      <span class="muted">Если не выбрана, используется база по умолчанию.</span>
+    </p>
+    <p>
+      <label class="label" for="max_chunks">Максимум разделов (0 — весь документ)</label>
+      <input id="max_chunks" type="number" name="max_chunks" value="0" min="0">
+    </p>
+    <button type="submit" class="btn-orange">Подготовить</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="label">Мои сессии</div>
+  {% if sessions %}
+  <table>
+    <thead>
+      <tr><th>Файл</th><th>Статус</th><th>Создана</th></tr>
+    </thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td class="name"><a href="/sessions/{{ s.id }}">{{ s.display_name }}</a></td>
+        <td><span class="badge {{ s.status.value }}">{{ s.status.value }}</span></td>
+        <td class="muted">{{ s.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Обработок пока нет.</p>
+  {% endif %}
+</div>
+{% endblock %}

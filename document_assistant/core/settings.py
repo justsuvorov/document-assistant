@@ -43,6 +43,51 @@ class Settings(BaseSettings):
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
 
+    # --- S3 / MinIO ---
+    # Пустой endpoint_url = AWS S3. Для MinIO/Ceph указывать явно.
+    s3_endpoint_url: str = Field("", alias="S3_ENDPOINT_URL")
+    s3_bucket: str = Field("document-assistant", alias="S3_BUCKET")
+    s3_access_key: str = Field("", alias="S3_ACCESS_KEY")
+    s3_secret_key: SecretStr = Field(SecretStr(""), alias="S3_SECRET_KEY")
+    s3_region: str = Field("us-east-1", alias="S3_REGION")
+    # MinIO и Ceph требуют path-style адресацию; AWS работает и так, и так.
+    s3_use_path_style: bool = Field(True, alias="S3_USE_PATH_STYLE")
+    s3_presign_expires: int = Field(3600, alias="S3_PRESIGN_EXPIRES")
+
+    # --- База метаданных сессий ---
+    database_url: str = Field("sqlite+aiosqlite:///./document_assistant.db", alias="DATABASE_URL")
+
+    # --- Очередь задач (arq + Redis) ---
+    redis_url: str = Field("redis://redis:6379/0", alias="REDIS_URL")
+    # Каждая задача занимает поток целиком (доменная логика синхронная),
+    # поэтому параллелизм по умолчанию скромный.
+    worker_max_jobs: int = Field(2, alias="WORKER_MAX_JOBS")
+    worker_job_timeout: int = Field(7200, alias="WORKER_JOB_TIMEOUT")
+
+    # --- Keycloak / OIDC ---
+    # AUTH_DISABLED=true — локальная разработка без Keycloak: get_current_user()
+    # возвращает AUTH_DEV_USER_ID. В проде обязано быть false.
+    auth_disabled: bool = Field(False, alias="AUTH_DISABLED")
+    auth_dev_user_id: str = Field("dev-user", alias="AUTH_DEV_USER_ID")
+    keycloak_url: str = Field("", alias="KEYCLOAK_URL")
+    keycloak_realm: str = Field("", alias="KEYCLOAK_REALM")
+    keycloak_client_id: str = Field("", alias="KEYCLOAK_CLIENT_ID")
+    keycloak_client_secret: SecretStr = Field(SecretStr(""), alias="KEYCLOAK_CLIENT_SECRET")
+    # Секрет подписи cookie-сессии. В проде задать явно.
+    session_secret: SecretStr = Field(SecretStr("dev-insecure-session-secret"), alias="SESSION_SECRET")
+    session_cookie_name: str = Field("da_session", alias="SESSION_COOKIE_NAME")
+    session_cookie_secure: bool = Field(False, alias="SESSION_COOKIE_SECURE")
+
+    @property
+    def keycloak_metadata_url(self) -> str:
+        """OIDC discovery endpoint. Пустая строка, если Keycloak не сконфигурирован."""
+        if not self.keycloak_url or not self.keycloak_realm:
+            return ""
+        return (
+            f"{self.keycloak_url.rstrip('/')}/realms/{self.keycloak_realm}"
+            "/.well-known/openid-configuration"
+        )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

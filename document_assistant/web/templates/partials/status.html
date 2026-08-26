@@ -1,0 +1,40 @@
+{# Фрагмент подменяет контейнер #status целиком (hx-swap="outerHTML").
+   hx-trigger ставится только для незавершённых статусов — так поллинг
+   останавливается сам, без JS. #}
+<div id="status"
+     {% if session.status.value in ("queued", "processing") %}
+     hx-get="/pages/sessions/{{ session.id }}/status"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+  <div class="card">
+    <div class="label">Статус</div>
+    <p>
+      <span class="badge {{ session.status.value }}">
+        {% if session.status.value == "queued" %}в очереди
+        {% elif session.status.value == "processing" %}обработка
+        {% elif session.status.value == "done" %}готово
+        {% else %}ошибка{% endif %}
+      </span>
+      {% if session.chunk_count %}
+      <span class="muted">· разделов: {{ session.chunk_count }}</span>
+      {% endif %}
+    </p>
+
+    {% if session.status.value == "queued" %}
+      <div class="bar"><span style="width: 8%"></span></div>
+      <p class="muted">Задача принята, ожидает свободный воркер.</p>
+    {% elif session.status.value == "processing" %}
+      <div class="bar indet"><span></span></div>
+      <p class="muted">Идёт обработка модели. Страницу можно закрыть — результат сохранится.</p>
+    {% elif session.status.value == "done" %}
+      <div class="bar"><span style="width: 100%"></span></div>
+      {% if download_url %}
+      <p><a class="btn" href="{{ download_url }}">Скачать результат</a></p>
+      <p class="muted">Ссылка временная и действует ограниченное время.</p>
+      {% endif %}
+    {% else %}
+      <p class="err">{{ session.error_message or "Неизвестная ошибка" }}</p>
+    {% endif %}
+  </div>
+</div>

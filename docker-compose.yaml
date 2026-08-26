@@ -1,33 +1,120 @@
+# Общий блок переменных для api и worker: оба гоняют один и тот же доменный
+# код и должны видеть одинаковые настройки модели, S3, БД и очереди.
+x-app-env: &app_env
+  # Пути
+  NORMATIVE_BASE: ${NORMATIVE_BASE:-/app/normative_base}
+  EXAMPLES_PATH: ${EXAMPLES_PATH:-/app/examples}
+  # Обработка
+  LLM_MAX_CHARS: ${LLM_MAX_CHARS:-2200000}
+  LLM_MAX_CHUNKS: ${LLM_MAX_CHUNKS:-0}
+  LLM_MAX_SECTIONS: ${LLM_MAX_SECTIONS:-300}
+  LLM_BATCH_SIZE: ${LLM_BATCH_SIZE:-25}
+  AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
+  # Qwen (модель)
+  QWEN_API_URL: ${QWEN_API_URL}
+  QWEN_MODEL_NAME: ${QWEN_MODEL_NAME:-Qwen3.6-35B-A3B-NVFP4}
+  QWEN_MAX_TOKENS: ${QWEN_MAX_TOKENS:-100000}
+  QWEN_NUM_CTX: ${QWEN_NUM_CTX:-400000}
+  # Промты — обязательные, берутся из .env
+  AI_ROLE: ${AI_ROLE}
+  AI_PROMPT_TEMPLATE: ${AI_PROMPT_TEMPLATE}
+  # Хранилище
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+  S3_BUCKET: ${S3_BUCKET:-document-assistant}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-true}
+  # База и очередь
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://da:da@postgres:5432/document_assistant}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  # Авторизация
+  AUTH_DISABLED: ${AUTH_DISABLED:-false}
+  AUTH_DEV_USER_ID: ${AUTH_DEV_USER_ID:-dev-user}
+  KEYCLOAK_URL: ${KEYCLOAK_URL:-}
+  KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+  KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+  KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+  SESSION_SECRET: ${SESSION_SECRET:-dev-insecure-session-secret}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+
 services:
 
   api:
     build: .
-    container_name: document_assistant
+    container_name: document_assistant_api
     restart: always
+    depends_on:
+      - postgres
+      - redis
+      - minio
     ports:
       - "8001:80"
     volumes:
-      - ./uploads:/app/uploads
+      # uploads больше не монтируется — файлы живут в S3.
+      # Нормативка и примеры по умолчанию остаются в образе.
       - ./normative_base:/app/normative_base
       - ./examples:/app/examples
     environment:
-      # Пути
-      - NORMATIVE_BASE=${NORMATIVE_BASE:-/app/normative_base}
-      - EXAMPLES_PATH=${EXAMPLES_PATH:-/app/examples}
-      # Обработка
-      - LLM_MAX_CHARS=${LLM_MAX_CHARS:-2200000}
-      - LLM_MAX_CHUNKS=${LLM_MAX_CHUNKS:-0}
-      - LLM_MAX_SECTIONS=${LLM_MAX_SECTIONS:-300}
-      - LLM_BATCH_SIZE=${LLM_BATCH_SIZE:-25}
-      - AI_TEMPERATURE=${AI_TEMPERATURE:-0.2}
-      # Qwen (модель)
-      - QWEN_API_URL=${QWEN_API_URL}
-      - QWEN_MODEL_NAME=${QWEN_MODEL_NAME:-Qwen3.6-35B-A3B-NVFP4}
-      - QWEN_MAX_TOKENS=${QWEN_MAX_TOKENS:-100000}
-      - QWEN_NUM_CTX=${QWEN_NUM_CTX:-400000}
-      # Промты — обязательные, берутся из .env
-      - AI_ROLE=${AI_ROLE}
-      - AI_PROMPT_TEMPLATE=${AI_PROMPT_TEMPLATE}
-      # Gunicorn
-      - MAX_WORKERS=2
-      - TIMEOUT=900
+      <<: *app_env
+      # Долгих запросов на api больше нет — они ушли в worker,
+      # поэтому таймаут снова короткий.
+      MAX_WORKERS: 2
+      TIMEOUT: 120
+
+  worker:
+    build: .
+    container_name: document_assistant_worker
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    # Тот же образ, другая точка входа: здесь живёт вся длинная LLM-обработка.
+    command: arq document_assistant.worker.tasks.WorkerSettings
+    volumes:
+      - ./normative_base:/app/normative_base
+      - ./examples:/app/examples
+    environment:
+      <<: *app_env
+      WORKER_MAX_JOBS: ${WORKER_MAX_JOBS:-2}
+      WORKER_JOB_TIMEOUT: ${WORKER_JOB_TIMEOUT:-7200}
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: document_assistant_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-da}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-da}
+      POSTGRES_DB: ${POSTGRES_DB:-document_assistant}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: document_assistant_redis
+    restart: always
+    volumes:
+      - redisdata:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: document_assistant_minio
+    restart: always
+    command: server /data --console-address ":9001"
+    ports:
+      # 9000 — S3 API, 9001 — веб-консоль. Наружу нужны только для разработки;
+      # при переходе на корпоративный S3 сервис целиком убирается.
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

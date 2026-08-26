@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+  <div class="label">Файл</div>
+  <div>{{ session.display_name }}</div>
+</div>
+
+<!-- Поллинг живёт на контейнере: фрагмент подменяет его целиком вместе с
+     hx-trigger, поэтому когда сессия завершилась, фрагмент отдаётся без
+     триггера и опрос сам прекращается. -->
+<div id="status"
+     hx-get="/pages/sessions/{{ session.id }}/status"
+     hx-trigger="load, every 2s"
+     hx-swap="outerHTML">
+  <div class="card"><span class="muted">Загрузка статуса…</span></div>
+</div>
+
+<p><a href="/">← Ко всем сессиям</a></p>
+{% endblock %}

@@ -1,86 +1,73 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+"""Точка входа веб-приложения.
 
-from document_assistant.ai.encoders import TextEncoder
-from document_assistant.ai.model import ModelFactory
-from document_assistant.ai.postprocessor import PostProcessor
-from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
-from document_assistant.ai.promt_builders import PromptEngine
-from document_assistant.core.parsers import DataParser
-from document_assistant.core.pydantic_models import APIRequest, EstimateRequest, RebuildRequest
+Длинная LLM-обработка ушла в arq-воркер (``document_assistant.worker.tasks``),
+здесь остаются только быстрые операции: приём файлов, статусы, страницы.
+"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+
+from document_assistant.auth.dependencies import RedirectToLogin
+from document_assistant.auth.keycloak import register_oauth_client
+from document_assistant.auth.routes import router as auth_router
 from document_assistant.core.settings import settings
-from document_assistant.reports.report_export import ReportExport
-from document_assistant.services.assistant import AIAssistantService
-
-app = FastAPI()
-
-def _build_service(request: APIRequest) -> AIAssistantService:
-    task = ProcessingTask(
-        request_id=request.request_id,
-        file_path=request.file_path,
-        user_name=request.user_name,
-    )
-    return AIAssistantService(
-        preprocessor=DocumentPreprocessor(
-            data_parser=DataParser(file_path=request.file_path),
-            request=task,
-            encoder=TextEncoder(),
-            prompt_engine=PromptEngine(
-                role=settings.ai_role,
-                template=settings.ai_prompt_template,
-                normative_base=settings.normative_base,
-                num_ctx=settings.qwen_num_ctx,
-            ),
-            examples_path=settings.examples_path,
-        ),
-        postprocessor=PostProcessor(),
-        ai_model=ModelFactory.create(),
-        report_export=ReportExport(task),
-    )
+from document_assistant.db.engine import dispose_engine, init_db
+from document_assistant.storage import storage
+from document_assistant.web.api import router as api_router
+from document_assistant.web.pages import router as pages_router
+from document_assistant.worker.queue import close_arq_pool
 
 
-@app.post("/api/estimate")
-def estimate(request: EstimateRequest):
-    """Оценить количество чанков и время обработки без вызова LLM."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    register_oauth_client()
     try:
-        raw = DataParser(request.file_path).origin_data(request.file_path)
-        encoded = TextEncoder().prepared_data(raw)
-        chunks = DocumentChunker(batch_size=settings.llm_batch_size).split(encoded)
-        chunk_count = len(chunks)
-        return {
-            "chunk_count": chunk_count,
-            "estimated_seconds": chunk_count * 120,
-            "total_chars": len(raw),
-            "processed_chars": len(encoded),
-        }
+        storage.ensure_bucket()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Приложение поднимаем в любом случае: без S3 сломается загрузка
+        # файлов, но страница логина и история сессий останутся доступны,
+        # и в логах будет видна настоящая причина.
+        print(f"[WARN] S3 недоступен на старте: {e}", flush=True)
+    if settings.auth_disabled:
+        print("[WARN] AUTH_DISABLED=true — авторизация отключена, "
+              "все запросы идут от пользователя "
+              f"'{settings.auth_dev_user_id}'. Не используйте в проде.", flush=True)
+    yield
+    await close_arq_pool()
+    await dispose_engine()
 
 
-@app.post("/api/update")
-def submit(request: APIRequest):
-    ai = _build_service(request)
-    result = ai.result(max_chunks_override=request.max_chunks)
-    return JSONResponse(content=jsonable_encoder(result))
+app = FastAPI(title="ДМС-ассистент", lifespan=lifespan)
+
+# Нужна authlib для хранения state/nonce между /auth/login и /auth/callback.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret.get_secret_value(),
+    https_only=settings.session_cookie_secure,
+    same_site="lax",
+)
+
+app.include_router(auth_router)
+app.include_router(api_router)
+app.include_router(pages_router)
 
 
-@app.post("/api/rebuild")
-def rebuild(request: RebuildRequest):
-    """Собрать Excel из кэшированного LLM JSON без повторного вызова модели."""
-    task = ProcessingTask(
-        request_id=request.request_id,
-        file_path=request.file_path,
-        user_name=request.user_name,
-    )
-    try:
-        result = AIAssistantService.rebuild_from_json(
-            json_path=request.json_path,
-            file_path=request.file_path,
-            task=task,
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return JSONResponse(content=jsonable_encoder(result))
+@app.exception_handler(RedirectToLogin)
+async def redirect_to_login(request: Request, exc: RedirectToLogin):
+    """Неавторизованный пользователь на HTML-странице уходит на логин."""
+    return RedirectResponse(url="/auth/login", status_code=302)
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    return JSONResponse({"status": "ok"})
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
