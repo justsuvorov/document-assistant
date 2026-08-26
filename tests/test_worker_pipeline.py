@@ -141,3 +141,19 @@ def test_missing_report_raises(storage, monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         tasks._run_dms_pipeline("alice/s4/input/Запрос.xlsx", None, 0, "alice", "alice/s4")
+
+
+def test_worker_settings_match_arq_contract():
+    """arq читает redis_settings как объект, а не вызывает как метод.
+
+    Регрессия: когда-то это был @staticmethod, и воркер падал при старте
+    с `'staticmethod' object has no attribute 'host'` — но контейнер с
+    restart:always поднимался заново, и снаружи выглядел живым.
+    """
+    from arq.connections import RedisSettings
+
+    assert isinstance(tasks.WorkerSettings.redis_settings, RedisSettings)
+    assert tasks.WorkerSettings.redis_settings.host
+    # Задача должна быть зарегистрирована под тем же именем, каким её ставит API.
+    assert tasks.process_dms_session in tasks.WorkerSettings.functions
+    assert callable(tasks.WorkerSettings.on_startup)

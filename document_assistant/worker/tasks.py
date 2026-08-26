@@ -150,7 +150,6 @@ class WorkerSettings:
     max_jobs = settings.worker_max_jobs
     job_timeout = settings.worker_job_timeout
     keep_result = 3600
-
-    @staticmethod
-    def redis_settings() -> RedisSettings:
-        return redis_settings()
+    # Именно атрибут, а не метод: arq читает redis_settings как объект
+    # RedisSettings и обращается к его полям напрямую.
+    redis_settings = redis_settings()
