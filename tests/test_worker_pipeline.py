@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 os.environ.setdefault("NORMATIVE_BASE", "./normative_base")
 os.environ.setdefault("AI_ROLE", "test-role")
@@ -157,3 +158,36 @@ def test_worker_settings_match_arq_contract():
     # Задача должна быть зарегистрирована под тем же именем, каким её ставит API.
     assert tasks.process_dms_session in tasks.WorkerSettings.functions
     assert callable(tasks.WorkerSettings.on_startup)
+
+
+def test_presigned_url_uses_public_endpoint(monkeypatch):
+    """Ссылка для браузера подписывается внешним адресом, а не именем сервиса.
+
+    Регрессия: presigned-ссылка выписывалась на http://minio:9000 — внутри
+    compose-сети рабочая, из браузера не открывается вовсе.
+    """
+    from document_assistant.core import settings as settings_module
+    from document_assistant.storage.s3 import S3Storage
+
+    monkeypatch.setattr(settings_module.settings, "s3_endpoint_url", "http://minio:9000")
+    monkeypatch.setattr(settings_module.settings, "s3_public_endpoint_url", "http://localhost:9000")
+    monkeypatch.setattr(settings_module.settings, "s3_access_key", "k")
+    monkeypatch.setattr(settings_module.settings, "s3_secret_key", SecretStr("s"))
+
+    url = S3Storage().presigned_url("alice/s1/output/report.xlsx")
+    assert url.startswith("http://localhost:9000/")
+    assert "minio:9000" not in url
+    assert "X-Amz-Signature" in url
+
+
+def test_presigned_url_falls_back_to_main_endpoint(monkeypatch):
+    """Без S3_PUBLIC_ENDPOINT_URL используется обычный endpoint."""
+    from document_assistant.core import settings as settings_module
+    from document_assistant.storage.s3 import S3Storage
+
+    monkeypatch.setattr(settings_module.settings, "s3_endpoint_url", "https://s3.corp.ru")
+    monkeypatch.setattr(settings_module.settings, "s3_public_endpoint_url", "")
+    monkeypatch.setattr(settings_module.settings, "s3_access_key", "k")
+    monkeypatch.setattr(settings_module.settings, "s3_secret_key", SecretStr("s"))
+
+    assert S3Storage().presigned_url("alice/s1/output/report.xlsx").startswith("https://s3.corp.ru/")

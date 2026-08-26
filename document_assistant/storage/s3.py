@@ -33,27 +33,47 @@ class S3Storage:
 
     def __init__(self) -> None:
         self._client = None
+        self._public_client = None
 
     @property
     def bucket(self) -> str:
         return settings.s3_bucket
 
+    def _build_client(self, endpoint_url: str):
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint_url or None,
+            aws_access_key_id=settings.s3_access_key or None,
+            aws_secret_access_key=settings.s3_secret_key.get_secret_value() or None,
+            region_name=settings.s3_region,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path" if settings.s3_use_path_style else "auto"},
+            ),
+        )
+
     @property
     def client(self):
         """Ленивый клиент — чтобы импорт модуля не требовал живого S3."""
         if self._client is None:
-            self._client = boto3.client(
-                "s3",
-                endpoint_url=settings.s3_endpoint_url or None,
-                aws_access_key_id=settings.s3_access_key or None,
-                aws_secret_access_key=settings.s3_secret_key.get_secret_value() or None,
-                region_name=settings.s3_region,
-                config=Config(
-                    signature_version="s3v4",
-                    s3={"addressing_style": "path" if settings.s3_use_path_style else "auto"},
-                ),
-            )
+            self._client = self._build_client(settings.s3_endpoint_url)
         return self._client
+
+    @property
+    def public_client(self):
+        """Клиент для подписи ссылок, отдаваемых в браузер.
+
+        Подпись S3v4 включает хост, поэтому ссылку нельзя выписать на один
+        адрес, а открывать по другому — она станет невалидной. Отсюда второй
+        клиент на внешний endpoint.
+        """
+        if self._public_client is None:
+            public = settings.s3_public_endpoint_url or settings.s3_endpoint_url
+            self._public_client = (
+                self.client if public == settings.s3_endpoint_url
+                else self._build_client(public)
+            )
+        return self._public_client
 
     def ensure_bucket(self) -> None:
         """Создать бакет, если его нет. Для локального MinIO при старте."""
@@ -88,7 +108,7 @@ class S3Storage:
         ``ResponseContentDisposition`` заставляет браузер скачать файл под
         нормальным именем, а не под UUID-путём.
         """
-        return self.client.generate_presigned_url(
+        return self.public_client.generate_presigned_url(
             "get_object",
             Params={
                 "Bucket": self.bucket,

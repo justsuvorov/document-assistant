@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     s3_access_key: str = Field("", alias="S3_ACCESS_KEY")
     s3_secret_key: SecretStr = Field(SecretStr(""), alias="S3_SECRET_KEY")
     s3_region: str = Field("us-east-1", alias="S3_REGION")
+    # Адрес, по которому S3 доступен ИЗ БРАУЗЕРА пользователя. Внутри Docker
+    # приложение ходит в minio по имени сервиса, но presigned-ссылку с таким
+    # хостом браузер не откроет — подпись должна считаться от внешнего адреса.
+    # Пусто = использовать S3_ENDPOINT_URL (верно для настоящего S3/MinIO,
+    # доступного по одному адресу и приложению, и пользователям).
+    s3_public_endpoint_url: str = Field("", alias="S3_PUBLIC_ENDPOINT_URL")
     # MinIO и Ceph требуют path-style адресацию; AWS работает и так, и так.
     s3_use_path_style: bool = Field(True, alias="S3_USE_PATH_STYLE")
     s3_presign_expires: int = Field(3600, alias="S3_PRESIGN_EXPIRES")
