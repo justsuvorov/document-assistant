@@ -1,0 +1,18 @@
+{
+  "api_base_url": "http://localhost:8001",
+
+  "llm": {
+    "max_chars": 2200000,
+    "max_sections": 300,
+    "max_chunks": 0,
+    "batch_size": 25,
+    "temperature": 0.2
+  },
+
+  "qwen": {
+    "api_url": "https://model-1.ai-api.vsk.ru/v1/completions",
+    "model_name": "Qwen3.6-35B-A3B-NVFP4",
+    "max_tokens": 100000,
+    "num_ctx": 400000
+  }
+}
