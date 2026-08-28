@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_assistant.ai.encoders import TextEncoder
@@ -22,9 +23,8 @@ from document_assistant.core.settings import settings
 from document_assistant.db.models import SessionStatus
 from document_assistant.db.repository import SessionRepository
 from document_assistant.services.assistant import AIAssistantService
-from document_assistant.storage import input_key, storage, workspace
+from document_assistant.storage import UnsafeKeyError, input_key, storage, workspace
 from document_assistant.web.deps import get_db
-from document_assistant.worker.queue import enqueue_dms_session
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -36,7 +36,8 @@ async def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
     """Сохранить загруженный файл во временную папку под безопасным именем.
 
     ``Path(...).name`` отсекает попытку передать путь в имени файла
-    (``../../etc/passwd``) — иначе он попал бы в S3-ключ.
+    (``../../etc/passwd``) — иначе он попал бы в ключ, а тот теперь
+    разворачивается в реальный путь на диске.
     """
     safe_name = Path(upload.filename or "upload.bin").name
     dest = dest_dir / safe_name
@@ -45,13 +46,13 @@ async def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
 
 
 def _upload_all(items: list[tuple[Path, str]]) -> None:
-    """boto3 синхронный — вызывается через asyncio.to_thread."""
+    """Копирование файлов блокирующее — вызывается через asyncio.to_thread."""
     for local_path, key in items:
         storage.upload_file(local_path, key)
 
 
 def _rebuild_sync(client_key: str, json_key: str, prefix: str, user_name: str | None) -> str:
-    """Пересборка отчёта из кэша: S3 → tmp → ReportExport → S3. Возвращает ключ."""
+    """Пересборка отчёта из кэша: хранилище → tmp → ReportExport → хранилище."""
     with workspace() as tmp:
         local_input = storage.download_to_tmp(client_key, dest_dir=tmp)
         local_json = storage.download_to_tmp(json_key, dest_dir=tmp / "cache")
@@ -92,9 +93,11 @@ async def create_session(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Принять файлы, поставить задачу в очередь и сразу вернуть session_id.
+    """Принять файлы и сразу вернуть session_id.
 
-    LLM-обработка здесь не запускается — этим занимается arq-воркер.
+    Очередь — это сама таблица sessions: строка со статусом queued и есть
+    задача, воркер заберёт её сам. Отдельной постановки в брокер больше нет,
+    поэтому и сценария «файлы сохранены, но задача потерялась» не существует.
     """
     repo = SessionRepository(db)
     session = await repo.create(
@@ -120,19 +123,14 @@ async def create_session(
                 uploads.append((local_norm, keys["normative"]))
             await asyncio.to_thread(_upload_all, uploads)
     except Exception as e:
-        await repo.system_mark_error(session.id, f"Не удалось загрузить файлы в S3: {e}")
-        raise HTTPException(status_code=502, detail=f"Ошибка загрузки в хранилище: {e}")
+        await repo.system_mark_error(session.id, f"Не удалось сохранить файлы: {e}")
+        raise HTTPException(status_code=507, detail=f"Ошибка записи в хранилище: {e}")
 
+    # Ключи проставляются последними: до этого момента строка в queued есть,
+    # но без input_keys — воркер такую отбракует с понятной ошибкой, а не
+    # начнёт обрабатывать полузагруженную сессию.
     session.input_keys = keys
     await db.commit()
-
-    try:
-        await enqueue_dms_session(session.id)
-    except Exception as e:
-        # Файлы уже в S3, но задача не поставлена — честно помечаем ошибкой,
-        # иначе сессия навсегда зависла бы в статусе queued.
-        await repo.system_mark_error(session.id, f"Не удалось поставить задачу в очередь: {e}")
-        raise HTTPException(status_code=503, detail=f"Очередь недоступна: {e}")
 
     return {"session_id": session.id, "status": SessionStatus.QUEUED.value}
 
@@ -153,14 +151,16 @@ async def get_session(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Статус сессии; при status=done — presigned-ссылка на результат."""
+    """Статус сессии; при status=done — ссылка на скачивание результата."""
     session = await SessionRepository(db).get_for_user(session_id, user.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
 
     payload = session.to_dict()
     if session.status is SessionStatus.DONE and session.output_key:
-        payload["download_url"] = storage.presigned_url(session.output_key)
+        # Файл отдаёт само приложение: хранилище лежит на диске сервера и
+        # наружу не смотрит, поэтому прямых ссылок на него не существует.
+        payload["download_url"] = f"/api/sessions/{session_id}/download"
     return payload
 
 
@@ -172,7 +172,7 @@ async def rebuild_session(
 ):
     """Пересобрать Excel из кэшированного LLM JSON, без обращения к модели.
 
-    Владение проверяется через get_for_user до любого доступа к S3 — ключи
+    Владение проверяется через get_for_user до любого доступа к файлам — ключи
     берутся из записи сессии, а не из запроса, поэтому подставить чужой путь
     невозможно в принципе.
     """
@@ -203,8 +203,47 @@ async def rebuild_session(
     return {
         "session_id": session_id,
         "status": SessionStatus.DONE.value,
-        "download_url": storage.presigned_url(new_key),
+        "download_url": f"/api/sessions/{session_id}/download",
     }
+
+
+@router.get("/sessions/{session_id}/download")
+async def download_result(
+    session_id: str,
+    artifact: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Отдать результат сессии.
+
+    Ключ берётся из записи в БД, а не из запроса: пользователь не может
+    назвать произвольный путь. Владение проверяется до обращения к диску,
+    поэтому чужая сессия неотличима от несуществующей — 404.
+
+    ``artifact`` (llm_output | llm_debug) отдаёт побочный артефакт вместо
+    основного отчёта.
+    """
+    session = await SessionRepository(db).get_for_user(session_id, user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+
+    if artifact:
+        key = (session.artifact_keys or {}).get(artifact)
+        if key is None:
+            raise HTTPException(status_code=404, detail=f"Артефакт {artifact} отсутствует")
+    else:
+        key = session.output_key
+        if not key:
+            raise HTTPException(status_code=409, detail="Результат ещё не готов")
+
+    try:
+        path = storage.path_for_download(key)
+    except (FileNotFoundError, UnsafeKeyError):
+        # Запись в БД есть, а файла нет — чистим статус в сообщении, но не
+        # раскрываем путь на диске.
+        raise HTTPException(status_code=410, detail="Файл результата недоступен")
+
+    return FileResponse(path, filename=path.name)
 
 
 @router.post("/estimate")

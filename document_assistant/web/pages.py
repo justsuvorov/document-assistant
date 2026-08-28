@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from document_assistant.auth.dependencies import CurrentUser, require_user_page
 from document_assistant.db.models import SessionStatus
 from document_assistant.db.repository import SessionRepository
-from document_assistant.storage import storage
 from document_assistant.web.deps import get_db, templates
 
 router = APIRouter(tags=["pages"])
@@ -65,7 +64,7 @@ async def session_status_fragment(
 
     download_url = None
     if session.status is SessionStatus.DONE and session.output_key:
-        download_url = storage.presigned_url(session.output_key)
+        download_url = f"/api/sessions/{session.id}/download"
 
     return templates.TemplateResponse(
         request,

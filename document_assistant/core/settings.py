@@ -43,32 +43,28 @@ class Settings(BaseSettings):
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
 
-    # --- S3 / MinIO ---
-    # Пустой endpoint_url = AWS S3. Для MinIO/Ceph указывать явно.
-    s3_endpoint_url: str = Field("", alias="S3_ENDPOINT_URL")
-    s3_bucket: str = Field("document-assistant", alias="S3_BUCKET")
-    s3_access_key: str = Field("", alias="S3_ACCESS_KEY")
-    s3_secret_key: SecretStr = Field(SecretStr(""), alias="S3_SECRET_KEY")
-    s3_region: str = Field("us-east-1", alias="S3_REGION")
-    # Адрес, по которому S3 доступен ИЗ БРАУЗЕРА пользователя. Внутри Docker
-    # приложение ходит в minio по имени сервиса, но presigned-ссылку с таким
-    # хостом браузер не откроет — подпись должна считаться от внешнего адреса.
-    # Пусто = использовать S3_ENDPOINT_URL (верно для настоящего S3/MinIO,
-    # доступного по одному адресу и приложению, и пользователям).
-    s3_public_endpoint_url: str = Field("", alias="S3_PUBLIC_ENDPOINT_URL")
-    # MinIO и Ceph требуют path-style адресацию; AWS работает и так, и так.
-    s3_use_path_style: bool = Field(True, alias="S3_USE_PATH_STYLE")
-    s3_presign_expires: int = Field(3600, alias="S3_PRESIGN_EXPIRES")
+    # --- Хранилище файлов (локальный диск сервера) ---
+    # Каталог, куда складываются входные файлы и результаты. Внутри —
+    # структура {user_id}/{session_id}/input|output/. Должен быть доступен на
+    # запись и api, и воркеру: в compose это общий том.
+    storage_dir: str = Field("./data", alias="STORAGE_DIR")
 
     # --- База метаданных сессий ---
     database_url: str = Field("sqlite+aiosqlite:///./document_assistant.db", alias="DATABASE_URL")
 
-    # --- Очередь задач (arq + Redis) ---
-    redis_url: str = Field("redis://redis:6379/0", alias="REDIS_URL")
+    # --- Очередь задач (таблица sessions в БД) ---
     # Каждая задача занимает поток целиком (доменная логика синхронная),
     # поэтому параллелизм по умолчанию скромный.
     worker_max_jobs: int = Field(2, alias="WORKER_MAX_JOBS")
     worker_job_timeout: int = Field(7200, alias="WORKER_JOB_TIMEOUT")
+    # Как часто воркер заглядывает в БД за новой задачей, секунды.
+    worker_poll_interval: float = Field(2.0, alias="WORKER_POLL_INTERVAL")
+    # Задача, висящая в processing дольше этого, считается брошенной (воркер
+    # убит) и возвращается в очередь. Должно быть заметно больше самой долгой
+    # обработки, иначе живую задачу подхватит второй воркер.
+    worker_stale_timeout: int = Field(10800, alias="WORKER_STALE_TIMEOUT")
+    # Сколько раз пробовать задачу, прежде чем признать её ошибкой.
+    worker_max_attempts: int = Field(3, alias="WORKER_MAX_ATTEMPTS")
 
     # --- Keycloak / OIDC ---
     # AUTH_DISABLED=true — локальная разработка без Keycloak: get_current_user()

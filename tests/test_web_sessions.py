@@ -1,14 +1,14 @@
 """Интеграционные тесты веб-слоя: сессии, изоляция пользователей, статусы.
 
-S3 и очередь подменяются заглушками — проверяется поведение приложения, а не
-доступность инфраструктуры. Доменная логика (LLM) здесь не запускается:
-воркер тестируется отдельно, а его результат имитируется через репозиторий.
+Хранилище настоящее — это просто каталог на диске, поэтому вместо заглушки
+берётся временная папка: тест заодно проверяет реальную раскладку файлов.
+Доменная логика (LLM) здесь не запускается: воркер тестируется отдельно, а его
+результат имитируется через репозиторий.
 
 Окружение (тестовая БД, отключённый Keycloak) настраивается в conftest.py.
 """
 
 import asyncio
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,60 +20,23 @@ from document_assistant.auth.dependencies import (
     get_current_user,
     require_user_page,
 )
+from document_assistant.core import settings as settings_module
 from document_assistant.db.engine import async_session_factory
 from document_assistant.db.models import Base
 from document_assistant.db.repository import SessionRepository
-from document_assistant.web import api as api_module
-
-
-class FakeStorage:
-    """Хранилище в памяти: ключ → содержимое."""
-
-    def __init__(self):
-        self.objects: dict[str, bytes] = {}
-
-    def ensure_bucket(self):
-        pass
-
-    def upload_file(self, local_path, key):
-        self.objects[key] = Path(local_path).read_bytes()
-
-    def download_to_tmp(self, key, dest_dir=None):
-        directory = Path(dest_dir) if dest_dir else Path(tempfile.mkdtemp())
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / Path(key).name
-        path.write_bytes(self.objects[key])
-        return path
-
-    def presigned_url(self, key, expires=None):
-        return f"https://s3.test/{key}?signature=stub"
 
 
 @pytest.fixture
-def storage(monkeypatch):
-    fake = FakeStorage()
-    monkeypatch.setattr(api_module, "storage", fake)
-    monkeypatch.setattr(main, "storage", fake)
-    import document_assistant.web.pages as pages_module
-
-    monkeypatch.setattr(pages_module, "storage", fake)
-    return fake
+def storage_dir(tmp_path, monkeypatch) -> Path:
+    """Каталог хранилища на время теста."""
+    root = tmp_path / "storage"
+    root.mkdir()
+    monkeypatch.setattr(settings_module.settings, "storage_dir", str(root))
+    return root
 
 
 @pytest.fixture
-def enqueued(monkeypatch):
-    """Перехватывает постановку в очередь — Redis в тестах не нужен."""
-    calls: list[str] = []
-
-    async def fake_enqueue(session_id: str) -> None:
-        calls.append(session_id)
-
-    monkeypatch.setattr(api_module, "enqueue_dms_session", fake_enqueue)
-    return calls
-
-
-@pytest.fixture
-def client(storage, enqueued):
+def client(storage_dir):
     # Схема пересоздаётся на каждый тест: удалять файл БД нельзя — движок
     # уже держит на него открытое соединение.
     asyncio.run(_reset_schema())
@@ -91,11 +54,7 @@ async def _reset_schema() -> None:
 
 
 def as_user(user_id: str) -> None:
-    """Подменить текущего пользователя — и в API, и на HTML-страницах.
-
-    Переопределяются обе зависимости: /api/* использует get_current_user,
-    страницы — require_user_page (он редиректит вместо 401).
-    """
+    """Подменить текущего пользователя — и в API, и на HTML-страницах."""
     user = CurrentUser(user_id=user_id, user_name=user_id)
     main.app.dependency_overrides[get_current_user] = lambda: user
     main.app.dependency_overrides[require_user_page] = lambda: user
@@ -112,7 +71,22 @@ def create_session(client, user_id: str = "alice") -> str:
     return response.json()["session_id"]
 
 
-def test_create_session_returns_immediately_and_enqueues(client, enqueued, storage):
+def finish_session(session_id: str, storage_dir: Path, user_id: str = "alice") -> str:
+    """Имитировать успешную работу воркера: файл на диске + статус done."""
+    output_key = f"{user_id}/{session_id}/output/Запрос_ответ.xlsx"
+    path = storage_dir / output_key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"result-bytes")
+
+    async def finish():
+        async with async_session_factory() as db:
+            await SessionRepository(db).system_mark_done(session_id, output_key, {})
+
+    asyncio.run(finish())
+    return output_key
+
+
+def test_create_session_returns_immediately_and_queues(client, storage_dir):
     session_id = create_session(client)
 
     # Ответ приходит сразу со статусом queued — LLM не вызывалась.
@@ -120,25 +94,46 @@ def test_create_session_returns_immediately_and_enqueues(client, enqueued, stora
     assert body["status"] == "queued"
     assert body["file_name"] == "Запрос.xlsx"
 
-    assert enqueued == [session_id]
-    # Файл ушёл в S3 под ключом с user_id и session_id, а не на диск.
-    assert f"alice/{session_id}/input/Запрос.xlsx" in storage.objects
+    # Файл лежит на диске по пути с user_id и session_id.
+    assert (storage_dir / "alice" / session_id / "input" / "Запрос.xlsx").is_file()
 
 
-def test_done_session_exposes_presigned_download_url(client, storage):
+def test_done_session_download_returns_file(client, storage_dir):
     session_id = create_session(client)
-    output_key = f"alice/{session_id}/output/Запрос_ответ.xlsx"
-    storage.objects[output_key] = b"result"
-
-    async def finish():
-        async with async_session_factory() as db:
-            await SessionRepository(db).system_mark_done(session_id, output_key, {})
-
-    asyncio.run(finish())
+    finish_session(session_id, storage_dir)
 
     body = client.get(f"/api/sessions/{session_id}").json()
     assert body["status"] == "done"
-    assert body["download_url"].startswith(f"https://s3.test/{output_key}")
+    assert body["download_url"] == f"/api/sessions/{session_id}/download"
+
+    # Ссылка ведёт на само приложение и реально отдаёт файл.
+    downloaded = client.get(body["download_url"])
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"result-bytes"
+
+
+def test_download_of_foreign_session_is_404(client, storage_dir):
+    session_id = create_session(client, user_id="alice")
+    finish_session(session_id, storage_dir)
+
+    as_user("bob")
+    assert client.get(f"/api/sessions/{session_id}/download").status_code == 404
+
+
+def test_download_before_result_is_ready_returns_409(client):
+    session_id = create_session(client)
+    assert client.get(f"/api/sessions/{session_id}/download").status_code == 409
+
+
+def test_download_of_missing_file_returns_410(client, storage_dir):
+    """Запись в БД есть, файла нет — не 500 и без раскрытия пути на диске."""
+    session_id = create_session(client)
+    output_key = finish_session(session_id, storage_dir)
+    (storage_dir / output_key).unlink()
+
+    response = client.get(f"/api/sessions/{session_id}/download")
+    assert response.status_code == 410
+    assert str(storage_dir) not in response.text
 
 
 def test_other_user_cannot_read_foreign_session(client):
@@ -163,7 +158,7 @@ def test_session_list_is_scoped_to_current_user(client):
     assert bob_ids == [bob_session]
 
 
-def test_filename_with_path_traversal_is_stripped(client, storage):
+def test_filename_with_path_traversal_is_stripped(client, storage_dir):
     as_user("alice")
     response = client.post(
         "/api/sessions",
@@ -172,8 +167,10 @@ def test_filename_with_path_traversal_is_stripped(client, storage):
     )
     assert response.status_code == 202
     session_id = response.json()["session_id"]
-    # В ключ попало только имя файла — выйти за пределы префикса нельзя.
-    assert f"alice/{session_id}/input/passwd" in storage.objects
+
+    # В путь попало только имя файла, и он остался внутри каталога сессии.
+    assert (storage_dir / "alice" / session_id / "input" / "passwd").is_file()
+    assert not (storage_dir.parent / "etc" / "passwd").exists()
 
 
 def test_rebuild_without_llm_cache_returns_conflict(client):
@@ -190,26 +187,19 @@ def test_index_page_renders_upload_form_and_history(client):
     assert session_id in page.text
 
 
-def test_status_fragment_polls_while_running_and_stops_when_done(client, storage):
+def test_status_fragment_polls_while_running_and_stops_when_done(client, storage_dir):
     session_id = create_session(client)
 
     running = client.get(f"/pages/sessions/{session_id}/status")
     assert running.status_code == 200
     assert 'hx-trigger="every 2s"' in running.text
 
-    output_key = f"alice/{session_id}/output/Запрос_ответ.xlsx"
-    storage.objects[output_key] = b"result"
-
-    async def finish():
-        async with async_session_factory() as db:
-            await SessionRepository(db).system_mark_done(session_id, output_key, {})
-
-    asyncio.run(finish())
+    finish_session(session_id, storage_dir)
 
     done = client.get(f"/pages/sessions/{session_id}/status")
     # Поллинг прекращается сам: в завершённом фрагменте нет hx-trigger.
     assert "hx-trigger" not in done.text
-    assert "https://s3.test/" in done.text
+    assert f"/api/sessions/{session_id}/download" in done.text
 
 
 def test_status_fragment_shows_error_message(client):
@@ -229,7 +219,6 @@ def test_status_fragment_shows_error_message(client):
 def test_api_requires_auth_when_enabled(client, monkeypatch):
     """С включённой авторизацией и без токена API отвечает 401, а не 200."""
     main.app.dependency_overrides.clear()
-    from document_assistant.core import settings as settings_module
 
     monkeypatch.setattr(settings_module.settings, "auth_disabled", False)
     assert client.get("/api/sessions").status_code == 401

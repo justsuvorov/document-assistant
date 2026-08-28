@@ -1,7 +1,8 @@
 """Точка входа веб-приложения.
 
-Длинная LLM-обработка ушла в arq-воркер (``document_assistant.worker.tasks``),
-здесь остаются только быстрые операции: приём файлов, статусы, страницы.
+Длинная LLM-обработка ушла в отдельный воркер
+(``python -m document_assistant.worker``), здесь остаются только быстрые
+операции: приём файлов, статусы, страницы, отдача результатов.
 """
 
 from contextlib import asynccontextmanager
@@ -18,7 +19,6 @@ from document_assistant.db.engine import dispose_engine, init_db
 from document_assistant.storage import storage
 from document_assistant.web.api import router as api_router
 from document_assistant.web.pages import router as pages_router
-from document_assistant.worker.queue import close_arq_pool
 
 
 @asynccontextmanager
@@ -26,18 +26,17 @@ async def lifespan(app: FastAPI):
     await init_db()
     register_oauth_client()
     try:
-        storage.ensure_bucket()
+        storage.ensure_root()
     except Exception as e:
-        # Приложение поднимаем в любом случае: без S3 сломается загрузка
+        # Приложение поднимаем в любом случае: без каталога сломается загрузка
         # файлов, но страница логина и история сессий останутся доступны,
         # и в логах будет видна настоящая причина.
-        print(f"[WARN] S3 недоступен на старте: {e}", flush=True)
+        print(f"[WARN] Каталог хранилища недоступен на старте: {e}", flush=True)
     if settings.auth_disabled:
         print("[WARN] AUTH_DISABLED=true — авторизация отключена, "
               "все запросы идут от пользователя "
               f"'{settings.auth_dev_user_id}'. Не используйте в проде.", flush=True)
     yield
-    await close_arq_pool()
     await dispose_engine()
 
 

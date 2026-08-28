@@ -1,6 +1,8 @@
 """Модель сессии обработки — единственная таблица метаданных.
 
-Сами файлы живут в S3; здесь только ключи, статус и владелец.
+Сами файлы лежат на диске сервера; здесь только ключи, статус и владелец.
+Эта же таблица служит очередью задач: воркер забирает строки со статусом
+queued (см. SessionRepository.system_claim_next).
 """
 
 from __future__ import annotations
@@ -62,7 +64,7 @@ class ProcessingSession(Base):
         nullable=False,
     )
 
-    # Ключи S3 входных файлов: {"client": "...", "policy": "..."} — словарь, а не
+    # Ключи входных файлов в хранилище: {"client": "...", "policy": "..."} — словарь, а не
     # список, чтобы воркер понимал роль каждого файла, а не полагался на порядок.
     input_keys: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     # Основной результат для скачивания (*_ответ.xlsx).
@@ -73,6 +75,16 @@ class ProcessingSession(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_chunks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # ── Поля очереди ────────────────────────────────────────────────────
+    # Момент захвата задачи воркером. По нему находятся «повисшие» задачи:
+    # если воркер убит в процессе, строка так и осталась бы в processing.
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Сколько раз задачу уже брали в работу — защита от вечного перезахвата
+    # задачи, которая роняет воркер.
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

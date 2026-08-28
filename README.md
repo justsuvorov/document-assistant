@@ -14,11 +14,11 @@
 |---|---|
 | `main.py` | FastAPI-приложение: страницы, API сессий, авторизация |
 | `document_assistant/web/` | Роуты API и HTML-страницы (Jinja2 + HTMX) |
-| `document_assistant/worker/` | arq-воркер: вся длинная LLM-обработка |
-| `document_assistant/storage/` | S3/MinIO — загрузка, скачивание, presigned-ссылки |
+| `document_assistant/worker/` | Воркер: вся длинная LLM-обработка |
+| `document_assistant/storage/` | Файлы на диске сервера — раскладка по сессиям |
 | `document_assistant/db/` | Таблица `sessions` (SQLAlchemy async) |
 | `document_assistant/auth/` | Keycloak OIDC, `get_current_user()` |
-| `docker-compose.yaml` | `api`, `worker`, `postgres`, `redis`, `minio` |
+| `docker-compose.yaml` | `api`, `worker`, `postgres` |
 
 Десктопный GUI (pyedifice/PySide6) убран — его заменил веб-интерфейс.
 
@@ -29,25 +29,46 @@
 ```
 Браузер ──► /auth/login ──► Keycloak ──► /auth/callback ──► httponly-cookie с JWT
    │
-   ├─ POST /api/sessions   файлы ──► S3, запись sessions(status=queued) ──► arq
+   ├─ POST /api/sessions   файлы ──► диск, запись sessions(status=queued)
    │        └── отвечает сразу: {"session_id": "..."}
    │
-   ├─ GET  /api/sessions/{id}   статус; при done — presigned download_url
+   ├─ GET  /api/sessions/{id}   статус; при done — download_url на само приложение
    │        └── страница опрашивает его через HTMX каждые 2 секунды
    │
-   └─ arq worker: S3 ──► временная папка ──► AIAssistantService.result() ──► S3
+   └─ worker: забирает queued из БД ──► временная папка
+            ──► AIAssistantService.result() ──► диск
             └── статус в БД: queued → processing → done | error
 ```
 
 Разграничение доступа:
 
 - `user_id` — это claim `sub` из токена Keycloak.
-- Ключи в S3 начинаются с `user_id`: `{user_id}/{session_id}/input/<файл>`.
+- Пути начинаются с `user_id`: `{STORAGE_DIR}/{user_id}/{session_id}/input/<файл>`.
 - Все выборки сессий фильтруются по `user_id`; чужой `session_id` даёт **404**.
-- Бакет закрытый — файлы отдаются только по presigned-ссылке с ограниченным TTL.
+- Каталог наружу не смотрит: файл отдаёт само приложение через
+  `GET /api/sessions/{id}/download`, проверив владельца. Ключ берётся из записи
+  в БД, а не из запроса, поэтому назвать произвольный путь нельзя.
 
-Файлы на диск контейнера не кладутся: они скачиваются во временную папку на
-время обработки и удаляются вместе с ней.
+Промежуточные файлы обработки живут во временной папке и удаляются вместе с
+ней — в каталоге хранилища остаются только вход и результаты.
+
+### Очередь без брокера
+
+Очередь — это сама таблица `sessions`: строка со статусом `queued` и есть
+задача. Воркер забирает её одним атомарным `UPDATE` с `FOR UPDATE SKIP LOCKED`,
+поэтому два воркера не возьмут одну задачу дважды, а второй не будет ждать
+занятую строку.
+
+Отдельной постановки в брокер нет, значит невозможен и сценарий «файлы
+сохранены, а задача потерялась».
+
+Если воркер убьют на середине, строка осталась бы в `processing` навсегда.
+От этого защищает `WORKER_STALE_TIMEOUT`: задача, захваченная дольше этого
+срока назад, возвращается в очередь, а исчерпавшая `WORKER_MAX_ATTEMPTS`
+попыток — уходит в `error`. Значение должно быть **заметно больше** самой
+долгой обработки, иначе живую задачу подхватит второй воркер.
+
+---
 
 ### Локальная разработка без Keycloak
 
@@ -59,7 +80,7 @@ Keycloak не требуется. **В проде обязательно `false`
 ## Архитектура
 
 ```
-arq-задача (или POST /api/sessions → очередь)
+Задача воркера (строка sessions со статусом queued)
        │
        ▼
  AIAssistantService
@@ -269,14 +290,23 @@ docker compose up -d
 | Сервис | Назначение |
 |---|---|
 | `api` | Веб-приложение, порт `8001` |
-| `worker` | arq-воркер, LLM-обработка |
-| `postgres` | Метаданные сессий |
-| `redis` | Очередь задач |
-| `minio` | S3-совместимое хранилище (`:9000`, консоль `:9001`) |
+| `worker` | LLM-обработка, забирает задачи из БД |
+| `postgres` | Метаданные сессий и очередь задач |
 
-Если в компании уже есть Postgres/Redis/S3 — уберите соответствующие сервисы
-из `docker-compose.yaml` и укажите `DATABASE_URL`, `REDIS_URL`,
-`S3_ENDPOINT_URL` в `.env`.
+Файлы лежат на диске в `STORAGE_DIR` (в compose — общий том `appdata`,
+смонтированный в `api` и `worker`). На сервере том обычно заменяется на
+bind-mount в нужный каталог:
+
+```yaml
+volumes:
+  - /srv/document-assistant/data:/data
+```
+
+Если в компании уже есть Postgres — уберите сервис из `docker-compose.yaml`
+и укажите `DATABASE_URL` в `.env`.
+
+**Оба процесса обязаны видеть один и тот же каталог**: `api` пишет туда вход
+и отдаёт результаты, `worker` читает вход и кладёт отчёты.
 
 ### 3. Проверить здоровье
 
@@ -329,7 +359,7 @@ LLM здесь не вызывается.
 ```
 
 `status` — `queued` | `processing` | `done` | `error`.
-`download_url` появляется только при `done`; ссылка живёт `S3_PRESIGN_EXPIRES`
+`download_url` появляется только при `done` и ведёт на само приложение
 секунд. При `error` заполнено `error_message`.
 
 ---
@@ -382,15 +412,13 @@ LLM здесь не вызывается.
 | `QWEN_MODEL_NAME` | Модель Qwen |
 | `QWEN_MAX_TOKENS` | Максимум токенов в ответе |
 | `QWEN_NUM_CTX` | Контекстное окно в токенах (128 000) |
-| `S3_ENDPOINT_URL` | Адрес S3. Пусто = AWS S3, иначе MinIO/Ceph |
-| `S3_BUCKET` | Имя бакета (создаётся при старте, если его нет) |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Доступы к хранилищу |
-| `S3_USE_PATH_STYLE` | `true` для MinIO и Ceph |
-| `S3_PRESIGN_EXPIRES` | Срок жизни ссылки на скачивание, секунды |
+| `STORAGE_DIR` | Каталог файлов на диске сервера (общий для api и worker) |
 | `DATABASE_URL` | Postgres (`postgresql+asyncpg://…`) или SQLite (`sqlite+aiosqlite://…`) |
-| `REDIS_URL` | Адрес Redis для очереди arq |
 | `WORKER_MAX_JOBS` | Сколько документов воркер обрабатывает параллельно |
 | `WORKER_JOB_TIMEOUT` | Потолок на одну обработку, секунды |
+| `WORKER_POLL_INTERVAL` | Как часто воркер заглядывает в БД за задачей, секунды |
+| `WORKER_STALE_TIMEOUT` | Через сколько задача в `processing` считается брошенной |
+| `WORKER_MAX_ATTEMPTS` | Сколько попыток даётся задаче до статуса `error` |
 | `AUTH_DISABLED` | `true` — работа без Keycloak (только для разработки) |
 | `KEYCLOAK_URL` / `KEYCLOAK_REALM` | Адрес и realm Keycloak |
 | `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` | Учётные данные клиента OIDC |
@@ -444,7 +472,7 @@ document_assistant/
     assistant.py        — AIAssistantService, сохранение JSON/debug, rebuild_from_json
     factory.py          — сборка AIAssistantService (общая для API и воркера)
   storage/
-    s3.py               — S3Storage, схема ключей, presigned-ссылки, workspace()
+    local.py            — LocalStorage, схема путей, workspace()
   db/
     models.py           — ProcessingSession (таблица sessions)
     engine.py           — async-движок SQLAlchemy, init_db()
@@ -458,7 +486,8 @@ document_assistant/
     pages.py            — HTML-страницы и HTMX-фрагмент статуса
     templates/          — Jinja2-шаблоны
   worker/
-    tasks.py            — arq-задача: S3 → доменный код → S3 → статус в БД
+    tasks.py            — обработка сессии: диск → доменный код → диск → статус
+    runner.py           — цикл воркера: захват задач из БД, параллелизм, остановка
     queue.py            — постановка задач из API
 main.py                 — FastAPI: роутеры, lifespan, обработка редиректа на логин
 docker-compose.yaml

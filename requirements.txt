@@ -15,13 +15,9 @@ gunicorn
 jinja2
 itsdangerous          # подпись cookie-сессии (SessionMiddleware)
 
-# --- Хранилище S3 / MinIO ---
-boto3
-
-# --- Очередь задач ---
-arq
-
-# --- База метаданных сессий ---
+# --- База метаданных сессий (она же очередь задач) ---
+# Файлы лежат на диске сервера, задачи — в таблице sessions:
+# ни S3-клиента, ни брокера очередей не требуется.
 sqlalchemy[asyncio]>=2.0
 asyncpg               # Postgres (compose/прод)
 aiosqlite             # SQLite (локальная разработка)

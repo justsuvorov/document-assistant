@@ -1,7 +1,7 @@
-"""arq-воркер: длинная LLM-обработка вне HTTP-запроса.
+"""Обработка одной сессии: длинная LLM-работа вне HTTP-запроса.
 
 Схема одной задачи:
-    S3 → временная папка → существующий AIAssistantService.result() → S3 → БД
+    хранилище → временная папка → AIAssistantService.result() → хранилище → БД
 
 Доменный код синхронный и блокирующий, поэтому запускается через
 ``asyncio.to_thread`` — иначе он заблокировал бы event loop воркера и
@@ -15,11 +15,9 @@ import time
 import traceback
 from pathlib import Path
 
-from arq.connections import RedisSettings
-
 from document_assistant.ai.preprocessor import ProcessingTask
 from document_assistant.core.settings import settings
-from document_assistant.db.engine import async_session_factory, dispose_engine
+from document_assistant.db.engine import async_session_factory
 from document_assistant.db.repository import SessionRepository
 from document_assistant.services.factory import build_dms_service
 from document_assistant.storage import session_prefix, storage, workspace
@@ -31,12 +29,13 @@ _ARTIFACT_SUFFIXES = {
 }
 
 
-def redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(settings.redis_url)
-
-
 async def process_dms_session(ctx: dict, session_id: str) -> dict:
-    """Обработать одну DMS-сессию. Вызывается arq по имени задачи."""
+    """Обработать одну DMS-сессию.
+
+    Вызывается воркером после того, как задача уже захвачена и переведена
+    в processing (см. SessionRepository.system_claim_next), поэтому статус
+    здесь только завершающий: done или error.
+    """
     async with async_session_factory() as db:
         repo = SessionRepository(db)
         session = await repo.system_get(session_id)
@@ -53,8 +52,6 @@ async def process_dms_session(ctx: dict, session_id: str) -> dict:
         if not client_key:
             await repo.system_mark_error(session_id, "В сессии нет входного файла клиента")
             return {"session_id": session_id, "status": "error"}
-
-        await repo.system_mark_processing(session_id)
 
         try:
             result = await asyncio.to_thread(
@@ -83,16 +80,16 @@ def _run_dms_pipeline(
     user_name: str | None,
     prefix: str,
 ) -> dict:
-    """Синхронная часть: скачать, обработать, залить. Выполняется в потоке.
+    """Синхронная часть: забрать, обработать, положить. Выполняется в потоке.
 
-    Загрузка результатов в S3 происходит здесь же — до выхода из ``workspace``,
+    Сохранение результатов происходит здесь же — до выхода из ``workspace``,
     иначе временная папка уже была бы удалена. ``prefix`` передаётся аргументом,
     а не берётся из глобального состояния: задач в воркере несколько
     одновременно (WORKER_MAX_JOBS), и общий префикс они бы затирали.
     """
     with workspace() as tmp:
         local_input = storage.download_to_tmp(client_key, dest_dir=tmp)
-        print(f"[INFO] Вход скачан из S3: {client_key} → {local_input.name}", flush=True)
+        print(f"[INFO] Вход получен: {client_key} → {local_input.name}", flush=True)
 
         # Нормативка — в отдельную подпапку: доменный код складывает все
         # артефакты рядом с клиентским файлом, и посторонний файл в той же
@@ -130,26 +127,3 @@ def _run_dms_pipeline(
                 artifact_keys[name] = key
 
         return {"output_key": result_key, "artifact_keys": artifact_keys}
-
-
-async def startup(ctx: dict) -> None:
-    storage.ensure_bucket()
-    print(f"[INFO] arq-воркер запущен, бакет {settings.s3_bucket}", flush=True)
-
-
-async def shutdown(ctx: dict) -> None:
-    await dispose_engine()
-
-
-class WorkerSettings:
-    """Точка входа: ``arq document_assistant.worker.tasks.WorkerSettings``."""
-
-    functions = [process_dms_session]
-    on_startup = startup
-    on_shutdown = shutdown
-    max_jobs = settings.worker_max_jobs
-    job_timeout = settings.worker_job_timeout
-    keep_result = 3600
-    # Именно атрибут, а не метод: arq читает redis_settings как объект
-    # RedisSettings и обращается к его полям напрямую.
-    redis_settings = redis_settings()
