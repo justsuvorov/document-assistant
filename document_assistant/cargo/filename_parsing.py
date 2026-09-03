@@ -54,6 +54,22 @@ class PolicyFilenameParser:
         typed by hand is still recognized."""
         return bool(self._DS_FOLDER_RE.search(fold(folder_name)))
 
+    # Attachments that live beside a ДС but are not the agreement itself —
+    # «ЛС к ДС 1» (лист согласования), approval sheets, carrier lists. They
+    # carry the ДС number in their name, so without this they are picked up
+    # as duplicate ДС and sent to the LLM as if they were the agreement.
+    _AUXILIARY_MARKERS = (
+        "лс к",
+        "лист согласовани",
+        "согласование",
+        "согласовани",
+        "перечень",
+    )
+
+    def is_auxiliary_name(self, name: str) -> bool:
+        folded = fold(name)
+        return any(marker in folded for marker in self._AUXILIARY_MARKERS)
+
     def parse_ds(self, file_path: str) -> PolicySource | None:
         """Recognizes one ДС file: "ДС {number} (п.{clause}[, п.{clause}...])".
 
@@ -61,7 +77,18 @@ class PolicyFilenameParser:
         live in the ДС folder — the number pattern alone is the only
         requirement, no "ДС" keyword confirmation needed beyond that.
         """
-        name = Path(file_path).stem
+        return self._parse_ds_text(Path(file_path).stem, file_path)
+
+    def parse_ds_folder(self, folder: Path) -> PolicySource | None:
+        """Same, for a per-ДС subfolder («ДС 1 (п.5, п.11.9, п.18.2.19)»).
+
+        Uses the folder's full name rather than Path.stem: a name like the
+        above ends in ".19)", which stem would chop off as an extension and
+        take the closing paren with it — leaving the clause list unparseable.
+        """
+        return self._parse_ds_text(folder.name, str(folder))
+
+    def _parse_ds_text(self, name: str, path: str) -> PolicySource | None:
         folded = fold(name)
         num_match = self._DS_NUMBER_RE.search(folded)
         if not num_match:
@@ -74,7 +101,7 @@ class PolicyFilenameParser:
 
         return PolicySource(
             kind="ds",
-            file_path=file_path,
+            file_path=path,
             ds_number=int(num_match.group("num")),
             clause_numbers=clause_numbers,
             raw_filename=name,

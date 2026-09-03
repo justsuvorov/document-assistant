@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from document_assistant.cargo.filename_parsing import DeclarationFilenameParser, PolicyFilenameParser
@@ -129,3 +131,42 @@ class TestDsFolderNames:
     def test_ds_folder_is_never_mistaken_for_policy_folder(self):
         for name in ("ДС", "Доп. соглашения", "ДС (доп. соглашения)"):
             assert self.parser.is_policy_folder_name(name) is False
+
+
+class TestAuxiliaryAttachments:
+    """Attachments carry the ДС number in their name («ЛС к ДС 1») and would
+    otherwise be picked up as duplicate ДС and sent to the LLM."""
+
+    def setup_method(self):
+        self.parser = PolicyFilenameParser()
+
+    @pytest.mark.parametrize("name", [
+        "ЛС к ДС 1", "Лист согласования к ДС 2", "Согласование БКС", "Перечень перевозчиков",
+    ])
+    def test_recognized_as_auxiliary(self, name):
+        assert self.parser.is_auxiliary_name(name) is True
+
+    @pytest.mark.parametrize("name", ["ДС - 1", "ДС 2 (п.7)", "ГП (рефрижераторный риск)"])
+    def test_agreement_documents_are_not_auxiliary(self, name):
+        assert self.parser.is_auxiliary_name(name) is False
+
+
+class TestDsFolderNameParsing:
+    def setup_method(self):
+        self.parser = PolicyFilenameParser()
+
+    def test_clause_numbers_survive_dotted_folder_name(self):
+        """Path.stem would read «.19)» as an extension and drop the closing
+        paren, leaving the clause list unparseable."""
+        source = self.parser.parse_ds_folder(Path("ДС 1 (п.5, п.11.9, п.18.2.19)"))
+        assert source is not None
+        assert source.ds_number == 1
+        assert source.clause_numbers == ["5", "11.9", "18.2.19"]
+
+    def test_simple_folder_name(self):
+        source = self.parser.parse_ds_folder(Path("ДС 2 (п.7)"))
+        assert source.ds_number == 2
+        assert source.clause_numbers == ["7"]
+
+    def test_non_ds_folder_returns_none(self):
+        assert self.parser.parse_ds_folder(Path("Декларации")) is None

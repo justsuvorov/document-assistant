@@ -20,6 +20,7 @@ from document_assistant.cargo.reconciliation_prompt import ReconciliationPromptE
 from document_assistant.cargo.reconciliation_writer import ReconciliationExcelWriter
 from document_assistant.cargo.report_export import CargoReportExport
 from document_assistant.cargo.response_template import ResponseTemplateResolver
+from document_assistant.cargo.shipment_table import split_by_shipment
 from document_assistant.cargo.rules_matrix_service import RulesMatrixService
 from document_assistant.cargo.special_conditions import SpecialConditionsLoader
 from document_assistant.core.parsers import DataParser
@@ -103,7 +104,9 @@ def _build_reconciliation_service(
     decl_number = DeclarationFilenameParser().parse_number(decl_path) or "UNKNOWN"
     decl_type = DeclarationTypeClassifier().classify(text)
     multi = decl_type is DeclarationType.MULTI
-    chunks = DocumentChunker(batch_size=1).split(text) if multi else [text]
+    # Split per shipment row, not per markdown table row: the latter also
+    # chunks the title, metadata and signature block into their own LLM calls.
+    chunks = split_by_shipment(text) if multi else [text]
 
     template = ResponseTemplateResolver.for_type(decl_type)
     layout = "горизонтальная (ПСГ)" if multi else "вертикальная"

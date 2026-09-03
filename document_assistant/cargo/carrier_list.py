@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from document_assistant.ai.encoders import TextEncoder
+from document_assistant.cargo.document_files import is_supported_document
 from document_assistant.cargo.filename_parsing import PolicyFilenameParser
 from document_assistant.cargo.text_norm import fold
 from document_assistant.core.parsers import DataParser
@@ -90,7 +91,7 @@ class CarrierListLocator:
 
         matches: list[tuple[int, Path]] = []
         for file in folder.rglob("*"):
-            if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
+            if not is_supported_document(file):
                 continue
             if _CARRIER_KEYWORD not in fold(file.stem):
                 continue
@@ -118,7 +119,7 @@ class CarrierListLocator:
     def _find_near_policy_text(self, policy_folder: str, policy_file_override: str | None) -> tuple[str, str] | None:
         for folder in self._policy_text_folders(policy_folder, policy_file_override):
             for file in sorted(folder.iterdir()):
-                if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
+                if not is_supported_document(file):
                     continue
                 if _CARRIER_KEYWORD in fold(file.stem):
                     return str(file), f"текст ГП ({folder.name})"

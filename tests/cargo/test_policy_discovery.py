@@ -194,3 +194,143 @@ class TestDsFolderTolerance:
         _touch(tmp_path / "ГП полис.docx")
         self.scanner.resolve_ds_folder(str(tmp_path))
         assert capsys.readouterr().out == ""
+
+
+class TestDsInPerAgreementSubfolders:
+    """Real client layout: each ДС in its own folder, with attachments beside
+    it. Taking every file turned 14 ДС into 27 sources and sent a лист
+    согласования to the LLM as if it were the agreement.
+    """
+
+    def setup_method(self):
+        self.scanner = PolicyFolderScanner()
+
+    def _client_layout(self, tmp_path: Path) -> None:
+        _touch(tmp_path / "ГП (рефрижераторный риск).docx")
+        ds = tmp_path / "ДС"
+        ds.mkdir()
+        for folder, files in {
+            "ДС 1 (п.5, п.11.9, п.18.2.19)": [
+                "ДС - 1.docx", "ЛС к ДС 1.xls", "data2.xls",
+                "ДС - 1_llm_debug.md", "ДС - 1_llm_output.json",
+            ],
+            "ДС 2 (п.7)": ["ДС - 2.docx", "ЛС к ДС 2.xls"],
+            "ДС 3 (п.9, п.12)": ["ДС - 3.docx", "Согласование БКС.docx"],
+        }.items():
+            d = ds / folder
+            d.mkdir()
+            for f in files:
+                _touch(d / f)
+
+    def test_one_source_per_ds_not_per_file(self, tmp_path: Path):
+        self._client_layout(tmp_path)
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+        assert [s.ds_number for s in ds] == [1, 2, 3]
+
+    def test_agreement_document_is_chosen_over_attachments(self, tmp_path: Path):
+        self._client_layout(tmp_path)
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+        assert [Path(s.file_path).name for s in ds] == ["ДС - 1.docx", "ДС - 2.docx", "ДС - 3.docx"]
+
+    def test_clause_numbers_come_from_the_folder_name(self, tmp_path: Path):
+        """The file is «ДС - 1.docx» — only the folder names the clauses, and
+        a Path.stem read of it would chop «.19)» off as an extension."""
+        self._client_layout(tmp_path)
+        ds = {s.ds_number: s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"}
+        assert ds[1].clause_numbers == ["5", "11.9", "18.2.19"]
+        assert ds[3].clause_numbers == ["9", "12"]
+
+    def test_soglasovanie_attachment_is_not_taken_as_body(self, tmp_path: Path):
+        self._client_layout(tmp_path)
+        ds = {s.ds_number: s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"}
+        assert "Согласование" not in Path(ds[3].file_path).name
+
+
+class TestFlatDsFolderDeduplication:
+    def setup_method(self):
+        self.scanner = PolicyFolderScanner()
+
+    def test_attachment_beside_flat_ds_file_is_skipped(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        ds = tmp_path / "ДС"
+        ds.mkdir()
+        _touch(ds / "ДС 1 (п.9).docx")
+        _touch(ds / "ЛС к ДС 1.xls")
+
+        found = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert len(found) == 1
+        assert Path(found[0].file_path).name == "ДС 1 (п.9).docx"
+
+    def test_duplicate_numbers_collapse_to_one_source(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        ds = tmp_path / "ДС"
+        ds.mkdir()
+        _touch(ds / "ДС 1 (п.9).docx")
+        _touch(ds / "ДС 1 копия.docx")
+
+        found = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert len(found) == 1
+
+    def test_generated_artifacts_are_not_reported_as_skipped(self, tmp_path: Path, capsys):
+        _touch(tmp_path / "ГП полис.docx")
+        ds = tmp_path / "ДС"
+        ds.mkdir()
+        _touch(ds / "ДС 1 (п.9).docx")
+        _touch(ds / "ДС 1 (п.9)_llm_debug.md")
+        _touch(ds / "ДС 1 (п.9)_llm_output.json")
+
+        self.scanner.scan(str(tmp_path))
+
+        assert "_llm_debug.md" not in capsys.readouterr().out
+
+
+class TestOfficeLockFiles:
+    """«~$ДС - 1.docx» is created by Word while a document is open. It has a
+    .docx extension and a ДС-looking name, so it was picked as the agreement
+    body and crashed the run with PackageNotFoundError."""
+
+    def setup_method(self):
+        self.scanner = PolicyFolderScanner()
+
+    def test_lock_file_not_chosen_as_ds_body(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        d = tmp_path / "ДС" / "ДС 3 (п.5)"
+        d.mkdir(parents=True)
+        _touch(d / "~$ДС - 1.docx")
+        _touch(d / "ДС - 3.docx")
+
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert Path(ds[0].file_path).name == "ДС - 3.docx"
+
+    def test_folder_with_only_a_lock_file_yields_no_ds(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        d = tmp_path / "ДС" / "ДС 3 (п.5)"
+        d.mkdir(parents=True)
+        _touch(d / "~$ДС - 1.docx")
+
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert ds == []
+
+    def test_lock_file_not_chosen_as_policy(self, tmp_path: Path):
+        _touch(tmp_path / "~$ГП полис.docx")
+        _touch(tmp_path / "ГП полис.docx")
+
+        sources = self.scanner.scan(str(tmp_path))
+
+        assert Path(sources[0].file_path).name == "ГП полис.docx"
+
+    def test_lock_file_in_flat_ds_folder_is_ignored(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        ds = tmp_path / "ДС"
+        ds.mkdir()
+        _touch(ds / "~$ДС 1 (п.9).docx")
+        _touch(ds / "ДС 1 (п.9).docx")
+
+        found = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert len(found) == 1
+        assert Path(found[0].file_path).name == "ДС 1 (п.9).docx"

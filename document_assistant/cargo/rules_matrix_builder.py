@@ -43,9 +43,31 @@ class RulesMatrixBuilder:
         self._chunker = DocumentChunker(batch_size=settings.llm_batch_size)
 
     def build(self, policy_folder: str, sources: list[PolicySource]) -> RulesMatrix:
-        sources_with_candidates: list[tuple[PolicySource, list[RawClause]]] = [
-            (source, self._extract_candidates(source)) for source in sources
-        ]
+        # One unreadable source must not lose the whole run: a single stray
+        # Office lock file («~$ДС - 1.docx») used to abort reconciliation for
+        # every declaration. Such a source is skipped, loudly.
+        sources_with_candidates: list[tuple[PolicySource, list[RawClause]]] = []
+        failed: list[str] = []
+        for source in sources:
+            try:
+                sources_with_candidates.append((source, self._extract_candidates(source)))
+            except Exception as e:
+                failed.append(f"{source.label} ({Path(source.file_path).name}): {e}")
+                print(
+                    f"[ERROR] {source.label}: не удалось обработать "
+                    f"{Path(source.file_path).name} — {e}. Источник пропущен.",
+                    flush=True,
+                )
+
+        if not sources_with_candidates:
+            raise RuntimeError(
+                "Не удалось обработать ни один документ полиса/ДС: " + "; ".join(failed)
+            )
+        if failed:
+            print(
+                f"[WARN] Матрица правил построена без {len(failed)} источник(ов) из {len(sources)}",
+                flush=True,
+            )
 
         clauses = self._merger.merge(sources_with_candidates)
 

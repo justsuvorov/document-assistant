@@ -5,9 +5,11 @@ routed through the shared orchestrator instead of a bespoke loop.
 """
 from pathlib import Path
 
+import pytest
 from docx import Document
 
 from document_assistant.ai.model import AIModel
+from document_assistant.cargo.models import PolicySource
 from document_assistant.cargo.policy_discovery import PolicyFolderScanner
 from document_assistant.cargo.rules_matrix_builder import RulesMatrixBuilder
 
@@ -73,3 +75,30 @@ class TestRulesMatrixBuilderThroughAIAssistantService:
         json_files = list(tmp_path.rglob("*_llm_output.json"))
         assert len(debug_files) == 3
         assert len(json_files) == 3
+
+
+class TestUnreadableSourceResilience:
+    """A single unreadable source (a stray Office lock file, a corrupted
+    upload) must not lose the whole reconciliation run."""
+
+    def test_broken_source_is_skipped_and_run_continues(self, tmp_path: Path):
+        d = Document()
+        d.add_paragraph("Условия генерального полиса.")
+        d.save(tmp_path / "ГП полис.docx")
+        (tmp_path / "broken.docx").write_text("not a real docx", encoding="utf-8")
+
+        sources = [
+            PolicySource(kind="policy", file_path=str(tmp_path / "ГП полис.docx")),
+            PolicySource(kind="ds", file_path=str(tmp_path / "broken.docx"), ds_number=1),
+        ]
+
+        matrix = RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)
+
+        assert len(matrix.clauses) == 1   # policy still processed
+
+    def test_raises_only_when_every_source_fails(self, tmp_path: Path):
+        (tmp_path / "broken.docx").write_text("not a real docx", encoding="utf-8")
+        sources = [PolicySource(kind="policy", file_path=str(tmp_path / "broken.docx"))]
+
+        with pytest.raises(RuntimeError, match="Не удалось обработать ни один документ"):
+            RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)

@@ -28,3 +28,64 @@ htmlcov/
 .DS_Store
 Thumbs.db
 /app/app.log
+/tests/! Скорр Тендерное задание ДМС риск Росхим в2.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2.xlsx
+/tests/! Скорр Тендерное задание ДМС риск Росхим в2 v2.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2 v2.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2 v2_debug.md
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2 v2_llm_debug.md
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2 v2_llm_output.json
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2 v2_ответ.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2_debug.md
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2_llm_debug.md
+/uploads/результаты/! Скорр Тендерное задание ДМС риск Росхим в2_llm_output.json
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2_llm_output.json
+/uploads/результаты/! Скорр Тендерное задание ДМС риск Росхим в2_ответ.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим в2_ответ.xlsx
+/tests/! Скорр Тендерное задание ДМС риск Росхим испр.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим испр.xlsx
+/uploads/! Скорр Тендерное задание ДМС риск Росхим испр_debug.md
+/uploads/! Скорр Тендерное задание ДМС риск Росхим испр_llm_debug.md
+/uploads/! Скорр Тендерное задание ДМС риск Росхим испр_llm_output.json
+/uploads/! Скорр Тендерное задание ДМС риск Росхим испр_ответ.xlsx
+/normative_base/1. Приложение №1 Программа добровольного медицинского страхования.docx
+/tests/1. Приложение №1 Программа добровольного медицинского страхования.docx
+/tests/126 – результат проверки.xlsx
+/uploads/201 совпадает_llm_output.json
+/tests/508 совпадает.xls
+/tests/511 не совпадает.xlsx
+/tests/1417 не совпадает.xls
+/2/client.docx
+/uploads/client.docx
+/1/client.xlsx
+/tests/client.xlsx
+/uploads/client.xlsx
+/Новая папка/client.xlsx
+/client.xlsx
+/uploads/client_debug.md
+/uploads/client_llm_debug.md
+/uploads/client_reprocess_ответ.xlsx
+/uploads/client_ответ.docx
+/uploads/client_ответ.xlsx
+/Новая папка/client_ответ.xlsx
+/uploads/client_ответ — копия.xlsx
+/app/config.json
+/2/response.docx
+/1/response.xlsx
+/tests/Техническое задание 2026-2027.xlsx
+/uploads/Техническое задание 2026-2027.xlsx
+/tests/Техническое задание 2026-2027 v1.xlsx
+/uploads/Техническое задание 2026-2027 v1.xlsx
+/uploads/Техническое задание 2026-2027 v1_debug.md
+/uploads/Техническое задание 2026-2027 v1_llm_debug.md
+/uploads/Техническое задание 2026-2027 v1_llm_output.json
+/uploads/Техническое задание 2026-2027 v1_ответ.xlsx
+/uploads/Техническое задание 2026-2027 без первого листа.xlsx
+/uploads/Техническое задание 2026-2027 без первого листа_debug.md
+/uploads/Техническое задание 2026-2027 без первого листа_llm_debug.md
+/uploads/Техническое задание 2026-2027 без первого листа_llm_output.json
+/uploads/Техническое задание 2026-2027 без первого листа_ответ.xlsx
+/uploads/Техническое задание 2026-2027_debug.md
+/uploads/Техническое задание 2026-2027_llm_debug.md
+/uploads/Техническое задание 2026-2027_llm_output.json
+/uploads/Техническое задание 2026-2027_ответ.xlsx

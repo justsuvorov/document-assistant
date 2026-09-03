@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from document_assistant.core.parsers import DataParser
+from document_assistant.cargo.document_files import is_supported_document
 
 
 class DeclarationDiscovery:
@@ -34,8 +34,4 @@ class DeclarationDiscovery:
     def _scan_folder(folder: Path) -> list[str]:
         if not folder.is_dir():
             return []
-        supported = set(DataParser._SUPPORTED)
-        return sorted(
-            str(f) for f in folder.rglob("*")
-            if f.is_file() and f.suffix.lower() in supported
-        )
+        return sorted(str(f) for f in folder.rglob("*") if is_supported_document(f))

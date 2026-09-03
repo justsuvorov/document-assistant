@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from document_assistant.cargo.filename_parsing import PolicyFilenameParser
+from document_assistant.cargo.document_files import is_generated_artifact, is_supported_document
 from document_assistant.cargo.models import PolicySource
-from document_assistant.core.parsers import DataParser
 
 
 class PolicyFolderScanner:
@@ -75,7 +75,7 @@ class PolicyFolderScanner:
         # The policy may be filed either as a document named "ГП ..." directly
         # in the policy folder, or inside a folder named for it («текст ГП»).
         for entry in sorted(folder.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in DataParser._SUPPORTED:
+            if is_supported_document(entry):
                 source = self._parser.parse_policy(str(entry))
                 if source is not None:
                     return source
@@ -88,7 +88,7 @@ class PolicyFolderScanner:
     @staticmethod
     def _first_document_in(folder: Path) -> PolicySource | None:
         for file in sorted(folder.iterdir()):
-            if file.is_file() and file.suffix.lower() in DataParser._SUPPORTED:
+            if is_supported_document(file):
                 return PolicySource(kind="policy", file_path=str(file), raw_filename=file.stem)
         return None
 
@@ -99,26 +99,90 @@ class PolicyFolderScanner:
 
         print(f"[INFO] Папка ДС: {folder}", flush=True)
 
-        # Recursive: some clients file each ДС in its own subfolder.
-        sources, skipped = [], []
+        ds_subfolders = [
+            d for d in sorted(folder.iterdir())
+            if d.is_dir() and self._parser.parse_ds_folder(d) is not None
+        ]
+        if ds_subfolders:
+            return self._from_ds_subfolders(ds_subfolders)
+        return self._from_flat_files(folder)
+
+    def _from_ds_subfolders(self, subfolders: list[Path]) -> list[PolicySource]:
+        """Each ДС in its own folder («ДС 1 (п.5, п.11.9)/ДС - 1.docx»).
+
+        The folder name — not the file name — carries the amended clause
+        numbers, and the folder also holds attachments (листы согласования,
+        перечни, служебные выгрузки). Taking every file here is what turned
+        14 ДС into 27 sources and sent a лист согласования to the LLM as if
+        it were the agreement.
+        """
+        sources = []
+        for d in subfolders:
+            source = self._parser.parse_ds_folder(d)
+            body = self._pick_ds_body(d)
+            if body is None:
+                print(f"[WARN] ДС {source.ds_number}: в папке «{d.name}» нет документа ДС", flush=True)
+                continue
+            source.file_path = str(body)
+            source.raw_filename = body.stem
+            sources.append(source)
+            print(
+                f"[INFO] ДС {source.ds_number}: {body.name}"
+                + (f" (пункты: {', '.join(source.clause_numbers)})" if source.clause_numbers
+                   else " (пункты не указаны в имени папки)"),
+                flush=True,
+            )
+        return sources
+
+    def _pick_ds_body(self, ds_folder: Path) -> Path | None:
+        """The agreement document itself, not its attachments. Prefers a Word
+        file whose own name reads as a ДС."""
+        candidates = [
+            f for f in sorted(ds_folder.rglob("*"))
+            if is_supported_document(f)
+            and not self._parser.is_auxiliary_name(f.stem)
+        ]
+        if not candidates:
+            return None
+
+        def rank(f: Path) -> tuple:
+            is_word = f.suffix.lower() in (".docx", ".doc")
+            parses_as_ds = self._parser.parse_ds(str(f)) is not None
+            return (not parses_as_ds, not is_word, len(f.name))
+
+        return min(candidates, key=rank)
+
+    def _from_flat_files(self, folder: Path) -> list[PolicySource]:
+        """All ДС as loose files in one folder («ДС/ДС 1 (п.9).docx»)."""
+        by_number: dict[int, PolicySource] = {}
+        skipped = []
         for file in sorted(folder.rglob("*")):
             if not file.is_file():
                 continue
-            if file.suffix.lower() not in DataParser._SUPPORTED:
-                skipped.append(f"{file.name} (неподдерживаемый формат {file.suffix})")
+            if not is_supported_document(file):
+                if not is_generated_artifact(file) and not file.name.startswith("~"):
+                    skipped.append(f"{file.name} (неподдерживаемый формат {file.suffix})")
+                continue
+            if self._parser.is_auxiliary_name(file.stem):
+                skipped.append(f"{file.name} (приложение к ДС, не сам ДС)")
                 continue
             source = self._parser.parse_ds(str(file))
             if source is None:
                 skipped.append(f"{file.name} (не распознан номер ДС в имени файла)")
                 continue
-            sources.append(source)
+            existing = by_number.get(source.ds_number)
+            if existing is None:
+                by_number[source.ds_number] = source
+            else:
+                skipped.append(f"{file.name} (дубль ДС {source.ds_number}, взят {Path(existing.file_path).name})")
 
         if skipped:
             print(
                 f"[WARN] В папке ДС пропущено файлов — {len(skipped)}: " + "; ".join(skipped[:10]),
                 flush=True,
             )
-        return sources
+        return list(by_number.values())
+
 
     def resolve_ds_folder(
         self, policy_folder: str, override: str | None = None, verbose: bool = False
