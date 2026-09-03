@@ -75,3 +75,57 @@ class TestDeclarationFilenameParser:
 
     def test_no_number_returns_none(self):
         assert self.parser.parse_number("декларация.docx") is None
+
+
+class TestDsNameVariants:
+    """Real folders are filled in by hand — «ДС №1», «ДС_1», «Доп. соглашение 1»
+    and a Latin-"C" «ДC» all appear in practice and must all parse."""
+
+    def setup_method(self):
+        self.parser = PolicyFilenameParser()
+
+    @pytest.mark.parametrize("filename,expected_num", [
+        ("ДС 1 (п.9).docx", 1),
+        ("ДС №1 (п.9).docx", 1),
+        ("ДС N1.docx", 1),
+        ("ДС_1.docx", 1),
+        ("ДС-1.docx", 1),
+        ("ДС1.docx", 1),
+        ("Доп. соглашение 1.docx", 1),
+        ("Дополнительное соглашение 7.docx", 7),
+        ("ДС 1 от 01.01.2025.docx", 1),
+    ])
+    def test_number_variants(self, filename, expected_num):
+        result = self.parser.parse_ds(filename)
+        assert result is not None, f"{filename} должен распознаваться"
+        assert result.ds_number == expected_num
+
+    def test_latin_c_homoglyph_is_recognized(self):
+        """«ДC» typed with a Latin C (U+0043) renders identically to «ДС»."""
+        result = self.parser.parse_ds("\u0414\u0043 \u21163 (\u043f.7).docx")
+        assert result is not None
+        assert result.ds_number == 3
+        assert result.clause_numbers == ["7"]
+
+    def test_clause_numbers_with_number_sign(self):
+        result = self.parser.parse_ds("ДС №2 (п.5, п. 7).docx")
+        assert result.clause_numbers == ["5", "7"]
+
+
+class TestDsFolderNames:
+    def setup_method(self):
+        self.parser = PolicyFilenameParser()
+
+    @pytest.mark.parametrize("name", [
+        "ДС", "дс", "\u0414\u0043", "Доп соглашения", "Доп. соглашения", "ДС (доп. соглашения)",
+    ])
+    def test_recognized_as_ds_folder(self, name):
+        assert self.parser.is_ds_folder_name(name) is True
+
+    @pytest.mark.parametrize("name", ["Декларации", "текст ГП", "Прочее"])
+    def test_not_ds_folder(self, name):
+        assert self.parser.is_ds_folder_name(name) is False
+
+    def test_ds_folder_is_never_mistaken_for_policy_folder(self):
+        for name in ("ДС", "Доп. соглашения", "ДС (доп. соглашения)"):
+            assert self.parser.is_policy_folder_name(name) is False

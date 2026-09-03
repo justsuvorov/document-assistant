@@ -1,9 +1,9 @@
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from document_assistant.ai.encoders import TextEncoder
 from document_assistant.cargo.filename_parsing import PolicyFilenameParser
+from document_assistant.cargo.text_norm import fold
 from document_assistant.core.parsers import DataParser
 
 _CARRIER_KEYWORD = "перевозчик"
@@ -36,11 +36,16 @@ class CarrierListLocator:
     restriction and reconciliation proceeds without that check.
     """
 
-    _DS_NUMBER_RE = re.compile(r"ДС\s*(?P<num>\d+)", re.IGNORECASE)
-
     def __init__(self, parser: PolicyFilenameParser | None = None):
         self._parser = parser or PolicyFilenameParser()
         self._encoder = TextEncoder()
+
+    def _ds_folder(self, policy_folder: str, override: str | None) -> Path | None:
+        from document_assistant.cargo.policy_discovery import PolicyFolderScanner
+        try:
+            return PolicyFolderScanner(self._parser).resolve_ds_folder(policy_folder, override)
+        except FileNotFoundError:
+            return None
 
     def locate(
         self,
@@ -76,24 +81,31 @@ class CarrierListLocator:
         return CarrierList(file_path=path, source_label=source_label, text=text)
 
     def _find_in_ds(self, policy_folder: str, override: str | None) -> tuple[str, str] | None:
-        folder = Path(override) if override else Path(policy_folder) / "ДС"
-        if not folder.is_dir():
+        # Reuse the scanner's tolerant ДС-folder resolution rather than
+        # re-joining "ДС" here — otherwise a folder named «Доп. соглашения»
+        # would be found for the rules matrix but missed for carriers.
+        folder = self._ds_folder(policy_folder, override)
+        if folder is None or not folder.is_dir():
             return None
 
         matches: list[tuple[int, Path]] = []
-        for file in folder.iterdir():
+        for file in folder.rglob("*"):
             if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
                 continue
-            if _CARRIER_KEYWORD not in file.stem.lower():
+            if _CARRIER_KEYWORD not in fold(file.stem):
                 continue
-            num_match = self._DS_NUMBER_RE.search(file.stem)
-            matches.append((int(num_match.group("num")) if num_match else 0, file))
+            # Reuse the shared ДС filename parsing rather than a second regex —
+            # a private copy here silently drifted out of sync and stopped
+            # recognizing «ДС №5», falling back to an unnumbered match.
+            parsed = self._parser.parse_ds(str(file))
+            matches.append((parsed.ds_number if parsed and parsed.ds_number else 0, file))
 
         if not matches:
             return None
 
         # Latest ДС wins — same precedence rule the rules matrix uses.
         ds_number, path = max(matches, key=lambda m: m[0])
+
         if len(matches) > 1:
             others = ", ".join(sorted(p.name for _, p in matches if p != path))
             print(
@@ -108,7 +120,7 @@ class CarrierListLocator:
             for file in sorted(folder.iterdir()):
                 if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
                     continue
-                if _CARRIER_KEYWORD in file.stem.lower():
+                if _CARRIER_KEYWORD in fold(file.stem):
                     return str(file), f"текст ГП ({folder.name})"
         return None
 
@@ -126,10 +138,7 @@ class CarrierListLocator:
         root = Path(policy_folder)
         if root.is_dir():
             folders.extend(
-                sorted(
-                    d for d in root.iterdir()
-                    if d.is_dir() and "гп" in d.name.lower()
-                )
+                sorted(d for d in root.iterdir() if d.is_dir() and "гп" in fold(d.name))
             )
             folders.append(root)
 

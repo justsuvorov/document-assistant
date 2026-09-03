@@ -134,3 +134,63 @@ class TestPolicyAsFolder:
         sources = self.scanner.scan(str(tmp_path))
 
         assert sources[0].file_path == str(tmp_path / "ГП главный.docx")
+
+
+class TestDsFolderTolerance:
+    """The ДС folder is named by hand on a Windows share — the scanner must
+    still find it when the name deviates from the exact «ДС» convention."""
+
+    def setup_method(self):
+        self.scanner = PolicyFolderScanner()
+
+    def _layout(self, tmp_path: Path, folder_name: str, files: list[str]) -> Path:
+        _touch(tmp_path / "ГП полис.docx")
+        ds_dir = tmp_path / folder_name
+        ds_dir.mkdir()
+        for f in files:
+            _touch(ds_dir / f)
+        return ds_dir
+
+    @pytest.mark.parametrize("folder_name", [
+        "ДС",
+        "\u0414\u0043",              # Latin "C" homoglyph
+        "Доп. соглашения",
+        "ДС (доп. соглашения)",
+    ])
+    def test_finds_ds_across_folder_name_variants(self, tmp_path: Path, folder_name):
+        self._layout(tmp_path, folder_name, ["ДС №1 (п.9).docx"])
+
+        sources = self.scanner.scan(str(tmp_path))
+
+        ds = [s for s in sources if s.kind == "ds"]
+        assert len(ds) == 1
+        assert ds[0].ds_number == 1
+
+    def test_finds_ds_nested_in_per_ds_subfolders(self, tmp_path: Path):
+        """Some clients file each ДС in its own subfolder."""
+        _touch(tmp_path / "ГП полис.docx")
+        nested = tmp_path / "ДС" / "ДС 2"
+        nested.mkdir(parents=True)
+        _touch(nested / "ДС №2 (п.5).docx")
+
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert len(ds) == 1
+        assert ds[0].ds_number == 2
+
+    def test_declarations_folder_is_not_used_as_ds(self, tmp_path: Path):
+        _touch(tmp_path / "ГП полис.docx")
+        decl = tmp_path / "Декларации"
+        decl.mkdir()
+        _touch(decl / "ДС 1 (п.9).docx")   # decoy
+
+        ds = [s for s in self.scanner.scan(str(tmp_path)) if s.kind == "ds"]
+
+        assert ds == []
+
+    def test_resolve_ds_folder_is_quiet_by_default(self, tmp_path: Path, capsys):
+        """The carrier-list lookup reuses this resolution; only the scan pass
+        should log, otherwise every warning appears twice."""
+        _touch(tmp_path / "ГП полис.docx")
+        self.scanner.resolve_ds_folder(str(tmp_path))
+        assert capsys.readouterr().out == ""

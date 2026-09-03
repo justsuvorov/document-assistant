@@ -80,3 +80,33 @@ class TestFoundNearPolicyText:
 
         assert result is not None
         assert "Вектор" in result.text
+
+
+class TestCarrierListFolderTolerance:
+    """The carrier lookup must use the same tolerant ДС-folder resolution as
+    the rules matrix — otherwise a folder named «Доп. соглашения» yields a
+    rules matrix but silently no carrier check."""
+
+    def test_finds_carriers_in_non_standard_ds_folder(self, tmp_path: Path):
+        _doc(tmp_path / "Доп. соглашения" / "ДС №5 (перевозчики).docx", "ООО Ромашка")
+
+        result = CarrierListLocator().locate(str(tmp_path))
+
+        assert result is not None
+        assert "Ромашка" in result.text
+        assert result.source_label == "ДС 5"
+
+    def test_finds_carriers_nested_in_per_ds_subfolder(self, tmp_path: Path):
+        _doc(tmp_path / "ДС" / "ДС 3" / "ДС №3 (перевозчики).docx", "ООО Вектор")
+
+        result = CarrierListLocator().locate(str(tmp_path))
+
+        assert result is not None
+        assert "Вектор" in result.text
+
+    def test_locate_does_not_duplicate_scanner_warnings(self, tmp_path: Path, capsys):
+        _doc(tmp_path / "ГП полис.docx", "Условия")
+        CarrierListLocator().locate(str(tmp_path))
+        out = capsys.readouterr().out
+        assert "Папка ДС не найдена" not in out
+        assert "Перечень перевозчиков" in out

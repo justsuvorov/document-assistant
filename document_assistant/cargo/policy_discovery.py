@@ -93,17 +93,75 @@ class PolicyFolderScanner:
         return None
 
     def _find_ds(self, policy_folder: str, override: str | None) -> list[PolicySource]:
-        folder = Path(override) if override else Path(policy_folder) / self.DS_SUBFOLDER_NAME
-        if override and not folder.is_dir():
-            raise FileNotFoundError(f"Папка ДС не найдена: {override}")
-        if not folder.is_dir():
+        folder = self.resolve_ds_folder(policy_folder, override, verbose=True)
+        if folder is None:
             return []
 
-        sources = []
-        for file in sorted(folder.iterdir()):
-            if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
+        print(f"[INFO] Папка ДС: {folder}", flush=True)
+
+        # Recursive: some clients file each ДС in its own subfolder.
+        sources, skipped = [], []
+        for file in sorted(folder.rglob("*")):
+            if not file.is_file():
+                continue
+            if file.suffix.lower() not in DataParser._SUPPORTED:
+                skipped.append(f"{file.name} (неподдерживаемый формат {file.suffix})")
                 continue
             source = self._parser.parse_ds(str(file))
-            if source is not None:
-                sources.append(source)
+            if source is None:
+                skipped.append(f"{file.name} (не распознан номер ДС в имени файла)")
+                continue
+            sources.append(source)
+
+        if skipped:
+            print(
+                f"[WARN] В папке ДС пропущено файлов — {len(skipped)}: " + "; ".join(skipped[:10]),
+                flush=True,
+            )
         return sources
+
+    def resolve_ds_folder(
+        self, policy_folder: str, override: str | None = None, verbose: bool = False
+    ) -> Path | None:
+        """Locate the addenda folder. Public so the carrier-list lookup uses
+        the same tolerant resolution — otherwise a folder named «Доп.
+        соглашения» would be found for the rules matrix but missed for
+        carriers. ``verbose`` is off by default so only the scan pass logs."""
+        if override:
+            folder = Path(override)
+            if not folder.is_dir():
+                raise FileNotFoundError(f"Папка ДС не найдена: {override}")
+            return folder
+
+        root = Path(policy_folder)
+        if not root.is_dir():
+            return None
+
+        exact = root / self.DS_SUBFOLDER_NAME
+        if exact.is_dir():
+            return exact
+
+        # Fall back to a tolerant match — the folder is named by hand, so it
+        # may read «Доп. соглашения», or carry a Latin "C" homoglyph that
+        # makes the exact join above miss a folder that looks correct.
+        subfolders = [d for d in sorted(root.iterdir()) if d.is_dir()]
+        for d in subfolders:
+            if self._parser.is_ds_folder_name(d.name):
+                if verbose:
+                    print(
+                        f"[INFO] Папка ДС найдена по нестандартному имени: «{d.name}» "
+                        f"(ожидалось «{self.DS_SUBFOLDER_NAME}»)",
+                        flush=True,
+                    )
+                return d
+
+        if verbose:
+            if subfolders:
+                print(
+                    f"[WARN] Папка ДС не найдена в {policy_folder}. "
+                    f"Просмотрены подпапки: {', '.join(d.name for d in subfolders)}",
+                    flush=True,
+                )
+            else:
+                print(f"[WARN] Папка ДС не найдена: в {policy_folder} нет подпапок вообще", flush=True)
+        return None
