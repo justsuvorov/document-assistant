@@ -16,15 +16,31 @@ class DeclarationPreprocessor(Preprocessor):
     preprocessor as a side effect of its own .queries() call.
     """
 
-    def __init__(self, chunks: list[str], prompt_engine, rules_matrix_block: str, special_conditions_text: str):
+    def __init__(
+        self,
+        chunks: list[str],
+        prompt_engine,
+        rules_matrix_block: str,
+        special_conditions_text: str,
+        template_fields_block: str = "",
+        carrier_list_text: str = "",
+    ):
         self._chunks = chunks
         self._prompt_engine = prompt_engine
         self._rules_matrix_block = rules_matrix_block
         self._special_conditions_text = special_conditions_text
+        self._template_fields_block = template_fields_block
+        self._carrier_list_text = carrier_list_text
 
     def queries(self) -> list[str]:
         return [
-            self._prompt_engine.build(self._rules_matrix_block, self._special_conditions_text, chunk)
+            self._prompt_engine.build(
+                self._rules_matrix_block,
+                self._special_conditions_text,
+                chunk,
+                template_fields_block=self._template_fields_block,
+                carrier_list_text=self._carrier_list_text,
+            )
             for chunk in self._chunks
         ]
 

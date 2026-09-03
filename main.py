@@ -9,6 +9,7 @@ from document_assistant.ai.model import ModelFactory
 from document_assistant.ai.postprocessor import PostProcessor
 from document_assistant.ai.preprocessor import DocumentPreprocessor, ProcessingTask, DocumentChunker
 from document_assistant.ai.promt_builders import PromptEngine
+from document_assistant.cargo.carrier_list import CarrierListLocator
 from document_assistant.cargo.declaration_classifier import DeclarationType, DeclarationTypeClassifier
 from document_assistant.cargo.declaration_discovery import DeclarationDiscovery
 from document_assistant.cargo.filename_parsing import DeclarationFilenameParser
@@ -18,6 +19,7 @@ from document_assistant.cargo.reconciliation_postprocessor import Reconciliation
 from document_assistant.cargo.reconciliation_prompt import ReconciliationPromptEngine
 from document_assistant.cargo.reconciliation_writer import ReconciliationExcelWriter
 from document_assistant.cargo.report_export import CargoReportExport
+from document_assistant.cargo.response_template import ResponseTemplateResolver
 from document_assistant.cargo.rules_matrix_service import RulesMatrixService
 from document_assistant.cargo.special_conditions import SpecialConditionsLoader
 from document_assistant.core.parsers import DataParser
@@ -84,6 +86,7 @@ def _build_reconciliation_service(
     rules_matrix_block: str,
     prompt_engine: ReconciliationPromptEngine,
     special_conditions_text: str,
+    carrier_list_text: str,
 ) -> tuple[AIAssistantService, DeclarationType, int]:
     """Builds one AIAssistantService for one declaration file — the cargo
     counterpart to _build_service() above. Classification happens here
@@ -91,14 +94,22 @@ def _build_reconciliation_service(
     also needs to know single-vs-multi before AIAssistantService.result() runs.
     """
     print(f"[INFO] Чтение декларации: {Path(decl_path).name}", flush=True)
-    text = TextEncoder().prepared_data(DataParser(decl_path).origin_data(decl_path))
+    raw = DataParser(decl_path).origin_data(decl_path)
+    text = TextEncoder().prepared_data(raw)
+    print(
+        f"[INFO]   прочитано {len(raw)} символов, после нормализации {len(text)}",
+        flush=True,
+    )
     decl_number = DeclarationFilenameParser().parse_number(decl_path) or "UNKNOWN"
     decl_type = DeclarationTypeClassifier().classify(text)
     multi = decl_type is DeclarationType.MULTI
     chunks = DocumentChunker(batch_size=1).split(text) if multi else [text]
+
+    template = ResponseTemplateResolver.for_type(decl_type)
+    layout = "горизонтальная (ПСГ)" if multi else "вертикальная"
     print(
         f"[INFO] Декларация №{decl_number}: тип={decl_type.value}, "
-        f"строк перевозки={len(chunks)}",
+        f"форма={layout}, строк перевозки={len(chunks)}",
         flush=True,
     )
 
@@ -108,11 +119,17 @@ def _build_reconciliation_service(
                                              prompt_engine=prompt_engine,
                                              rules_matrix_block=rules_matrix_block,
                                              special_conditions_text=special_conditions_text,
+                                             template_fields_block=template.to_prompt_block(),
+                                             carrier_list_text=carrier_list_text,
                                              ),
         postprocessor=ReconciliationPostProcessor(declaration_number=decl_number, multi=multi),
         ai_model=ModelFactory.create(),
         report_export=CargoReportExport(
-            task, decl_number, ReconciliationExcelWriter(special_conditions_text=special_conditions_text),
+            task,
+            decl_number,
+            ReconciliationExcelWriter(
+                template=template, special_conditions_text=special_conditions_text,
+            ),
         ),
         report_merge=ReconciliationReport.merge,
     )
@@ -148,6 +165,14 @@ def reconcile(request: ReconcileRequest):
     special_conditions_text = SpecialConditionsLoader().load(
         request.policy_folder, request.special_conditions_path,
     )
+
+    carrier_list = CarrierListLocator().locate(
+        request.policy_folder,
+        ds_folder_override=request.ds_folder_override,
+        policy_file_override=request.policy_file_override,
+    )
+    carrier_list_text = carrier_list.text if carrier_list else ""
+
     prompt_engine = ReconciliationPromptEngine(
         role=settings.reconciliation_ai_role,
         template=settings.reconciliation_prompt_template,
@@ -158,7 +183,8 @@ def reconcile(request: ReconcileRequest):
     declarations_out = []
     for decl_path in declaration_paths:
         service, decl_type, chunk_count = _build_reconciliation_service(
-            decl_path, request, rules_matrix_block, prompt_engine, special_conditions_text,
+            decl_path, request, rules_matrix_block, prompt_engine,
+            special_conditions_text, carrier_list_text,
         )
         decl_result = service.result(max_chunks_override=request.max_chunks)
         decl_result["type"] = decl_type.value
@@ -180,6 +206,11 @@ def reconcile(request: ReconcileRequest):
             "clause_count": len(matrix.clauses),
             "fingerprint": matrix.fingerprint,
             "cache_hit": cache_hit,
+        },
+        "carrier_list": {
+            "found": carrier_list is not None,
+            "file": Path(carrier_list.file_path).name if carrier_list else None,
+            "source": carrier_list.source_label if carrier_list else None,
         },
         "declarations": declarations_out,
     }

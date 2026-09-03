@@ -55,6 +55,6 @@ class ReconcileRequest(BaseModel):
         None, description="Путь к файлу особых условий клиента (опционально)"
     )
     force_rebuild_matrix: bool = Field(
-        False, description="Игнорировать кэш матрицы актуальных правил и пересчитать заново"
+        True, description="Игнорировать кэш матрицы актуальных правил и пересчитать заново (по умолчанию — да)"
     )
     max_chunks: int = Field(0, description="Максимальное число чанков на декларацию (0 = без ограничений)")

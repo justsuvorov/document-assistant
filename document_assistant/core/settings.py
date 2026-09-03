@@ -40,14 +40,18 @@ class Settings(BaseSettings):
         "",
         alias="SPECIAL_CONDITIONS_GLOBAL_PATH",
     )
-    reconciliation_output_template_path: str = Field("", alias="RECONCILIATION_OUTPUT_TEMPLATE_PATH")
+    # Формы ответа: горизонтальная (ПСГ) — для мультистрочных деклараций,
+    # вертикальная — для однострочных. Пусто = встроенные копии из репозитория.
+    reconciliation_template_horizontal: str = Field("", alias="RECONCILIATION_TEMPLATE_HORIZONTAL")
+    reconciliation_template_vertical: str = Field("", alias="RECONCILIATION_TEMPLATE_VERTICAL")
 
     @field_validator(
         "normative_base",
         "examples_path",
         "reconciliation_rules_base",
         "special_conditions_global_path",
-        "reconciliation_output_template_path",
+        "reconciliation_template_horizontal",
+        "reconciliation_template_vertical",
         mode="after",
     )
     @classmethod

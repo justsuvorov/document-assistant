@@ -1,4 +1,5 @@
 from document_assistant.ai.table_parser import MarkdownTableParser
+from document_assistant.cargo import result_consistency
 from document_assistant.cargo.declaration_numbering import DeclarationNumbering
 from document_assistant.cargo.models import ReconciliationReport, ReconciliationRow
 
@@ -42,5 +43,6 @@ class ReconciliationPostProcessor:
             )
             for cells in parsed_rows[1:]  # skip header row
         ]
+        result_consistency.apply(rows, ref)
 
         return ReconciliationReport(declaration_number=self._declaration_number, rows=rows, raw_text=raw_text)

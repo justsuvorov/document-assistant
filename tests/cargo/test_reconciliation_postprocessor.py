@@ -36,9 +36,11 @@ class TestSingleDeclaration:
         assert first.result == "совпадает"
         assert first.comment == "Полное совпадение"
 
-    def test_result_values(self):
+    def test_result_values_normalized_to_two_allowed_values(self):
+        """The response form allows only «совпадает»/«не совпадает» — anything
+        else the model returns (here «не знаю») collapses to «не совпадает»."""
         result = self.pp.report(SAMPLE_RESPONSE)
-        assert [row.result for row in result.rows] == ["совпадает", "не совпадает", "не знаю"]
+        assert [row.result for row in result.rows] == ["совпадает", "не совпадает", "не совпадает"]
 
     def test_empty_input(self):
         result = self.pp.report("")

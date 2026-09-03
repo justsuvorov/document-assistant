@@ -36,9 +36,16 @@ class ReconciliationPromptEngine:
                 flush=True,
             )
 
-    def build(self, rules_matrix_block: str, special_conditions: str, source_text: str) -> str:
+    def build(
+        self,
+        rules_matrix_block: str,
+        special_conditions: str,
+        source_text: str,
+        template_fields_block: str = "",
+        carrier_list_text: str = "",
+    ) -> str:
         try:
-            return self._template.format(
+            prompt = self._template.format(
                 role=self._role,
                 reconciliation_logic=self._reconciliation_logic,
                 rules_matrix=rules_matrix_block,
@@ -47,3 +54,31 @@ class ReconciliationPromptEngine:
             )
         except KeyError as e:
             raise ValueError(f"Ошибка в шаблоне RECONCILIATION_PROMPT_TEMPLATE: отсутствует ключ {e}")
+
+        # Appended rather than added as template placeholders, so existing
+        # RECONCILIATION_PROMPT_TEMPLATE values in deployed .env files keep
+        # working without needing new {…} slots.
+        if carrier_list_text:
+            prompt += (
+                "\n\n## ПЕРЕЧЕНЬ РАЗРЕШЁННЫХ ПЕРЕВОЗЧИКОВ (приложение к полису):\n"
+                f"{carrier_list_text}\n"
+                "Проверь, что перевозчик, заявленный в декларации, есть в этом перечне. "
+                "Если перевозчика в перечне нет — это «не совпадает», укажи это в комментарии."
+            )
+
+        if template_fields_block:
+            prompt += (
+                "\n\n## ОБЯЗАТЕЛЬНЫЙ СПИСОК ПОЛЕЙ ДЛЯ ПРОВЕРКИ (форма ответа):\n"
+                f"{template_fields_block}\n"
+                "ВАЖНО: верни в таблице РОВНО эти строки, в этом же порядке, с этими же "
+                "наименованиями полей — не добавляй свои поля и не пропускай указанные. "
+                "Если поле в декларации отсутствует, всё равно верни строку и поясни это в комментарии."
+            )
+
+        prompt += (
+            "\n\nВАЖНО о колонке «Результат проверки»: допустимы только значения "
+            "«совпадает» или «не совпадает». Значение ОБЯЗАНО соответствовать комментарию: "
+            "если в комментарии указано любое расхождение, отличие или несоответствие данных — "
+            "результат «не совпадает». Ставь «совпадает» только когда данные действительно идентичны."
+        )
+        return prompt

@@ -3,8 +3,14 @@ from document_assistant.cargo.preprocessors import ClauseExtractionPreprocessor,
 
 
 class FakeReconciliationPromptEngine:
-    def build(self, rules_matrix_block, special_conditions, source_text):
-        return f"[{rules_matrix_block}|{special_conditions}|{source_text}]"
+    def build(self, rules_matrix_block, special_conditions, source_text,
+              template_fields_block="", carrier_list_text=""):
+        extras = ""
+        if template_fields_block:
+            extras += f"|fields:{template_fields_block}"
+        if carrier_list_text:
+            extras += f"|carriers:{carrier_list_text}"
+        return f"[{rules_matrix_block}|{special_conditions}|{source_text}{extras}]"
 
 
 class FakeMatrixPromptEngine:
@@ -33,6 +39,19 @@ class TestDeclarationPreprocessor:
     def test_empty_chunks_yields_no_queries(self):
         pp = DeclarationPreprocessor([], FakeReconciliationPromptEngine(), "MATRIX", "COND")
         assert pp.queries() == []
+
+    def test_template_fields_and_carriers_forwarded(self):
+        pp = DeclarationPreprocessor(
+            chunks=["row1"],
+            prompt_engine=FakeReconciliationPromptEngine(),
+            rules_matrix_block="MATRIX",
+            special_conditions_text="COND",
+            template_fields_block="FIELDS",
+            carrier_list_text="CARRIERS",
+        )
+        query = pp.queries()[0]
+        assert "fields:FIELDS" in query
+        assert "carriers:CARRIERS" in query
 
 
 class TestClauseExtractionPreprocessor:

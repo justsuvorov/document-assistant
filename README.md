@@ -127,7 +127,8 @@ AI_TEMPERATURE=0.2
 # Сверка деклараций с ген. полисом (cargo, /api/reconcile) — опционально
 RECONCILIATION_RULES_BASE=/app/cargo_normative_base
 SPECIAL_CONDITIONS_GLOBAL_PATH=
-RECONCILIATION_OUTPUT_TEMPLATE_PATH=/app/document_assistant/cargo/templates/reconciliation_form.xlsx
+RECONCILIATION_TEMPLATE_HORIZONTAL=   # форма ответа ПСГ (мультистрочные), пусто = встроенная
+RECONCILIATION_TEMPLATE_VERTICAL=     # форма ответа вертикальная (однострочные), пусто = встроенная
 DECLARATIONS_MONTH_FORMAT=%Y-%m
 MATRIX_AI_ROLE="Ты — специалист по анализу..."
 MATRIX_PROMPT_TEMPLATE="{role}\n\n..."

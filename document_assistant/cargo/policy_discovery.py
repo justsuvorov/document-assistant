@@ -72,12 +72,24 @@ class PolicyFolderScanner:
         if not folder.is_dir():
             raise FileNotFoundError(f"Папка полиса не найдена: {policy_folder}")
 
+        # The policy may be filed either as a document named "ГП ..." directly
+        # in the policy folder, or inside a folder named for it («текст ГП»).
+        for entry in sorted(folder.iterdir()):
+            if entry.is_file() and entry.suffix.lower() in DataParser._SUPPORTED:
+                source = self._parser.parse_policy(str(entry))
+                if source is not None:
+                    return source
+            elif entry.is_dir() and self._parser.is_policy_folder_name(entry.name):
+                source = self._first_document_in(entry)
+                if source is not None:
+                    return source
+        return None
+
+    @staticmethod
+    def _first_document_in(folder: Path) -> PolicySource | None:
         for file in sorted(folder.iterdir()):
-            if not file.is_file() or file.suffix.lower() not in DataParser._SUPPORTED:
-                continue
-            source = self._parser.parse_policy(str(file))
-            if source is not None:
-                return source
+            if file.is_file() and file.suffix.lower() in DataParser._SUPPORTED:
+                return PolicySource(kind="policy", file_path=str(file), raw_filename=file.stem)
         return None
 
     def _find_ds(self, policy_folder: str, override: str | None) -> list[PolicySource]:

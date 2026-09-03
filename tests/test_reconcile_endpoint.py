@@ -102,7 +102,14 @@ class TestReconcileEndpoint:
         _make_policy_folder(tmp_path)
         decl_path = _make_declaration(tmp_path, "200")
 
-        payload = {"request_id": 1, "policy_folder": str(tmp_path), "declaration_paths": [str(decl_path)]}
+        # force_rebuild_matrix defaults to True, so the cache is only consulted
+        # when the caller explicitly opts out of the rebuild.
+        payload = {
+            "request_id": 1,
+            "policy_folder": str(tmp_path),
+            "declaration_paths": [str(decl_path)],
+            "force_rebuild_matrix": False,
+        }
         client.post("/api/reconcile", json=payload)
         calls_after_first = client.stub_model.calls
 

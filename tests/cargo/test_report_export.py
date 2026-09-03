@@ -31,7 +31,7 @@ class TestCargoReportExport:
         decl_path.write_text("placeholder", encoding="utf-8")
         task = ProcessingTask(request_id=1, file_path=str(decl_path), user_name="Иванов И.И.")
 
-        export = CargoReportExport(task, declaration_number="200", writer=ReconciliationExcelWriter(template_path=""))
+        export = CargoReportExport(task, declaration_number="200", writer=ReconciliationExcelWriter())
         report = ReconciliationReport(
             declaration_number="200",
             rows=[ReconciliationRow("200", "Объект страхования", "3.2", "совпадает", "ОК")],

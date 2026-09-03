@@ -61,8 +61,10 @@ class ReconciliationRow:
     declaration_ref: str            # "200" или "200/1"
     field_name: str
     matched_policy_clause: str
-    result: str                     # "совпадает" | "не совпадает" | "не знаю"
+    result: str                     # "совпадает" | "не совпадает"
     comment: str
+    # Set when the verdict contradicts its own comment (see result_consistency)
+    needs_review: bool = False
 
 
 @dataclass

@@ -24,12 +24,22 @@ class PolicyFilenameParser:
     _PARENTHETICAL_RE = re.compile(r"\(([^)]+)\)")
     _CLAUSE_NUMBER_RE = re.compile(r"п\.?\s*(\d+(?:\.\d+)*)", re.IGNORECASE)
 
+    _POLICY_FOLDER_RE = re.compile(r"\bГП\b|ген\w*\s*полис", re.IGNORECASE)
+
     def parse_policy(self, file_path: str) -> PolicySource | None:
         """Recognizes the general policy file: name starts with "ГП"."""
         name = Path(file_path).stem
         if self._POLICY_RE.match(name):
             return PolicySource(kind="policy", file_path=file_path, raw_filename=name)
         return None
+
+    def is_policy_folder_name(self, folder_name: str) -> bool:
+        """Whether a subfolder holds the policy text — «текст ГП», «ГП 2026»,
+        «текст ген. полиса». Excludes the ДС/Декларации siblings."""
+        lowered = folder_name.lower()
+        if lowered.startswith("дс") or "деклараци" in lowered:
+            return False
+        return bool(self._POLICY_FOLDER_RE.search(folder_name))
 
     def parse_ds(self, file_path: str) -> PolicySource | None:
         """Recognizes one ДС file: "ДС {number} (п.{clause}[, п.{clause}...])".

@@ -428,7 +428,7 @@ def CargoScreen(self):
     policy_folder,          set_policy_folder          = use_state("")
     special_conditions_file, set_special_conditions_file = use_state("")
     declaration_files,      set_declaration_files      = use_state(())   # tuple[str, ...]
-    force_rebuild_matrix,   set_force_rebuild_matrix   = use_state(False)
+    force_rebuild_matrix,   set_force_rebuild_matrix   = use_state(True)
 
     status,      set_status      = use_state("Готов к работе")
     processing,  set_processing  = use_state(False)
@@ -613,7 +613,7 @@ def CargoScreen(self):
         with HBoxView(style={"margin-bottom": "10px"}):
             CheckBox(checked=force_rebuild_matrix, on_change=lambda v: set_force_rebuild_matrix(v),
                      style={"margin-right": "8px"})
-            Label(text="Пересчитать матрицу актуальных правил заново (игнорировать кэш)",
+            Label(text="Пересчитать матрицу актуальных правил заново (игнорировать кэш) — по умолчанию включено",
                   style=label_s())
 
         # Process button
@@ -644,6 +644,16 @@ def CargoScreen(self):
                         text="Взята из кэша" if matrix_info.get("cache_hit") else "Пересчитана",
                         style=value_s(),
                     )
+
+            carrier_info = result.get("carrier_list") or {}
+            with VBoxView(style=card()):
+                Label(text="Перечень перевозчиков", style={**label_s(), "margin-bottom": "6px"})
+                if carrier_info.get("found"):
+                    Label(text=f"Найден: {carrier_info.get('file')}", style=value_s())
+                    Label(text=f"Источник: {carrier_info.get('source')}", style=label_s())
+                else:
+                    Label(text="Не найден — проверка перевозчика не выполнялась",
+                          style={**value_s(), "color": _ORANGE})
 
             for decl in result.get("declarations", []):
                 with VBoxView(style=card()):

@@ -96,3 +96,41 @@ class TestOverrides:
         _touch(tmp_path / "ГП.docx")
         with pytest.raises(FileNotFoundError):
             self.scanner.scan(str(tmp_path), ds_folder_override=str(tmp_path / "missing_ds"))
+
+
+class TestPolicyAsFolder:
+    """The policy may be filed inside a folder («текст ГП») rather than as a
+    loose "ГП ..." document in the policy folder root."""
+
+    def setup_method(self):
+        self.scanner = PolicyFolderScanner()
+
+    def test_finds_policy_inside_tekst_gp_folder(self, tmp_path: Path):
+        gp_dir = tmp_path / "текст ГП"
+        gp_dir.mkdir()
+        _touch(gp_dir / "Договор страхования грузов.docx")
+
+        sources = self.scanner.scan(str(tmp_path))
+
+        assert [s.kind for s in sources] == ["policy"]
+        assert sources[0].file_path == str(gp_dir / "Договор страхования грузов.docx")
+
+    def test_ds_and_declarations_folders_are_not_mistaken_for_policy(self, tmp_path: Path):
+        (tmp_path / "Декларации").mkdir()
+        ds_dir = tmp_path / "ДС"
+        ds_dir.mkdir()
+        _touch(ds_dir / "ДС 1 (п.9).docx")
+
+        sources = self.scanner.scan(str(tmp_path))
+
+        assert [s.kind for s in sources] == ["ds"]
+
+    def test_loose_gp_file_still_preferred_when_present(self, tmp_path: Path):
+        _touch(tmp_path / "ГП главный.docx")
+        gp_dir = tmp_path / "текст ГП"
+        gp_dir.mkdir()
+        _touch(gp_dir / "другой.docx")
+
+        sources = self.scanner.scan(str(tmp_path))
+
+        assert sources[0].file_path == str(tmp_path / "ГП главный.docx")
