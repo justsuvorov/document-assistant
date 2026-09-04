@@ -456,6 +456,33 @@ pyinstaller build.spec --clean --noconfirm
 
 ---
 
+## Корпоративный прокси
+
+Настройки прокси лежат в одном файле `proxy.env` (в git не попадает — может содержать логин/пароль). Его читают и сборка, и запуск:
+
+```bash
+copy proxy.env.example proxy.env
+# заполнить адрес прокси, затем как обычно:
+build-all.bat
+run-all.bat
+```
+
+Кода менять не нужно: `httpx` (вызовы LLM) и `requests` (GUI → API) читают переменные окружения сами.
+
+**Главное, что нужно указать правильно — `NO_PROXY`.** Через прокси НЕ должны идти:
+- `127.0.0.1, localhost` — GUI обращается к API локально; если этот трафик уйдёт на прокси, запрос не вернётся. `load-proxy.bat` добавляет их принудительно, даже если в `proxy.env` забыли;
+- внутренние адреса LLM (`.vsk.ru`) — они доступны напрямую.
+
+Проверить фактическую маршрутизацию:
+
+```bash
+python -c "import requests; print(requests.utils.get_environ_proxies('https://llm.ai-api.vsk.ru/x') or 'ПРЯМОЕ')"
+```
+
+**Если pip падает на SSL** (`CERTIFICATE_VERIFY_FAILED`) — прокси подменяет сертификаты. В `proxy.env` укажите корпоративный корневой сертификат (`PIP_CERT`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`) либо, как крайнюю меру, `PIP_TRUSTED_HOST`. Если у вас уже есть готовый `pip.ini` — достаточно прописать `PIP_CONFIG_FILE`.
+
+---
+
 ## Решение проблем
 
 ### Ошибка "Not Found: ModuleNotFoundError: No module named 'PySide6'"

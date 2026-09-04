@@ -15,10 +15,35 @@ if not exist "main.py" (
     exit /b 1
 )
 
+call load-proxy.bat
+
+echo.
 echo [1/4] Установка зависимостей...
+if defined PIP_CONFIG_FILE echo         pip использует конфиг: %PIP_CONFIG_FILE%
+if defined PIP_INDEX_URL   echo         индекс пакетов: %PIP_INDEX_URL%
+
 pip install -r requirements.txt -q
+if errorlevel 1 goto :pip_failed
 pip install -r app/requirements.txt -q
+if errorlevel 1 goto :pip_failed
 pip install pyinstaller -q
+if errorlevel 1 goto :pip_failed
+goto :pip_ok
+
+:pip_failed
+echo.
+echo ERROR: не удалось установить зависимости.
+echo.
+echo Если ошибка связана с сетью или SSL — проверьте прокси:
+echo   1. Скопируйте proxy.env.example в proxy.env и укажите адрес прокси
+echo   2. При ошибке SSLError/CERTIFICATE_VERIFY_FAILED укажите в proxy.env
+echo      корпоративный сертификат (PIP_CERT) или PIP_TRUSTED_HOST
+echo   3. Если у вас уже есть pip.ini — пропишите PIP_CONFIG_FILE
+echo.
+pause
+exit /b 1
+
+:pip_ok
 
 echo [2/4] Сборка API сервиса...
 pyinstaller build_api.spec --clean --noconfirm

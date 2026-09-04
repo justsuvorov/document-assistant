@@ -1,4 +1,13 @@
+import sys
 from pathlib import Path
+
+# Весь лог пишется по-русски. Если stdout уходит не в консоль, а в файл или
+# в пайп, Python берёт кодировку локали (cp1251), и первый же символ вне неё
+# роняет запрос с UnicodeEncodeError — в собранном EXE это возвращало 500 на
+# ровном месте. Переводим потоки в UTF-8 до того, как что-либо напечатано.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
