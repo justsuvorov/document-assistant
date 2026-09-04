@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 REM ---------------------------------------------------------------------------
 REM Load corporate proxy settings from proxy.env.
 REM Called by build-all.bat and run-all.bat via "call load-proxy.bat".

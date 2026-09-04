@@ -1,512 +1,865 @@
-<title>Сверка грузов</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Инструкция: сверка деклараций на перевозку груза с генеральным полисом и ДС.">
+<title>Сверка грузовых деклараций</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600;700&display=swap">
 
 <style>
-  :root {
-    --bg: #f4f7fa;
-    --surface: #ffffff;
-    --surface-2: #eef3f7;
-    --ink: #0b2233;
-    --ink-muted: #51697a;
-    --border: #d7e2ea;
-    --accent: #0d4f6b;
-    --accent-soft: #e4eef3;
-    --success: #1a7a4a;
-    --success-bg: #e8f5ee;
-    --success-border: #bfe2cc;
-    --danger: #a83232;
-    --danger-bg: #fbeaea;
-    --danger-border: #f0c6c6;
-    --warn: #9c6414;
-    --warn-bg: #fbf1e2;
-    --warn-border: #ecd9b3;
-    --shadow: 0 1px 2px rgba(11,34,51,.04), 0 8px 24px rgba(11,34,51,.06);
+  :root{
+    --ground:#F5F7F9;
+    --surface:#FFFFFF;
+    --surface-sunk:#EDF1F5;
+    --ink:#16202B;
+    --ink-soft:#3D4F60;
+    --muted:#63788B;
+    --line:#D6DFE7;
+    --line-soft:#E6ECF1;
+    --accent:#1A6FA8;
+    --accent-deep:#12547E;
+    --accent-wash:#E7F0F7;
+    --ok:#1A7A4A;
+    --ok-wash:#E4F2EA;
+    --warn:#B4741A;
+    --warn-wash:#FAF0E0;
+    --crit:#A83232;
+    --crit-wash:#F8E7E7;
+    --code-bg:#EEF2F6;
+    --code-ink:#123A56;
+
+    --sp-1:.35rem; --sp-2:.7rem; --sp-3:1.1rem; --sp-4:1.7rem; --sp-5:2.6rem; --sp-6:4rem;
+    --measure:70ch;
+    --radius:5px;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #071b28;
-      --surface: #0d2e45;
-      --surface-2: #123a56;
-      --ink: #eef5f9;
-      --ink-muted: #93b3c4;
-      --border: #1c4a68;
-      --accent: #7fcaeb;
-      --accent-soft: #123a56;
-      --success: #4cc98d;
-      --success-bg: #123326;
-      --success-border: #1f5a3d;
-      --danger: #ea7970;
-      --danger-bg: #3a1616;
-      --danger-border: #6b2a26;
-      --warn: #e6b262;
-      --warn-bg: #3a2a10;
-      --warn-border: #6b4c1e;
-      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E151C;
+      --surface:#161F28;
+      --surface-sunk:#111A22;
+      --ink:#E4ECF2;
+      --ink-soft:#B7C6D2;
+      --muted:#8298AA;
+      --line:#2A3945;
+      --line-soft:#212E39;
+      --accent:#5AA9DC;
+      --accent-deep:#8CC6EC;
+      --accent-wash:#152836;
+      --ok:#5FC58C;
+      --ok-wash:#122A1F;
+      --warn:#E0A95A;
+      --warn-wash:#2C2213;
+      --crit:#E88585;
+      --crit-wash:#2E1919;
+      --code-bg:#111A22;
+      --code-ink:#9FD0EE;
     }
   }
-  :root[data-theme="dark"] {
-    --bg: #071b28;
-    --surface: #0d2e45;
-    --surface-2: #123a56;
-    --ink: #eef5f9;
-    --ink-muted: #93b3c4;
-    --border: #1c4a68;
-    --accent: #7fcaeb;
-    --accent-soft: #123a56;
-    --success: #4cc98d;
-    --success-bg: #123326;
-    --success-border: #1f5a3d;
-    --danger: #ea7970;
-    --danger-bg: #3a1616;
-    --danger-border: #6b2a26;
-    --warn: #e6b262;
-    --warn-bg: #3a2a10;
-    --warn-border: #6b4c1e;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+
+  :root[data-theme="dark"]{
+    --ground:#0E151C;
+    --surface:#161F28;
+    --surface-sunk:#111A22;
+    --ink:#E4ECF2;
+    --ink-soft:#B7C6D2;
+    --muted:#8298AA;
+    --line:#2A3945;
+    --line-soft:#212E39;
+    --accent:#5AA9DC;
+    --accent-deep:#8CC6EC;
+    --accent-wash:#152836;
+    --ok:#5FC58C;
+    --ok-wash:#122A1F;
+    --warn:#E0A95A;
+    --warn-wash:#2C2213;
+    --crit:#E88585;
+    --crit-wash:#2E1919;
+    --code-bg:#111A22;
+    --code-ink:#9FD0EE;
   }
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font-family: "Golos Text", "Segoe UI", system-ui, sans-serif;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
+  *{box-sizing:border-box;}
+
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,sans-serif;
+    font-size:16px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
   }
 
-  .shell {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 56px 24px 96px;
+  code,kbd,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;}
+
+  /* ── Shell ────────────────────────────────────────────────── */
+  .shell{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 var(--sp-4) var(--sp-6);
   }
 
-  header.hero {
-    margin-bottom: 40px;
+  .masthead{
+    padding:var(--sp-6) 0 var(--sp-4);
+    border-bottom:2px solid var(--ink);
+    margin-bottom:var(--sp-5);
   }
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 12.5px;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: var(--accent);
-    background: var(--accent-soft);
-    border: 1px solid var(--border);
-    padding: 5px 11px;
-    border-radius: 999px;
-    margin-bottom: 18px;
+  .eyebrow{
+    font-size:.72rem;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    font-weight:600;
+    color:var(--accent);
+    margin:0 0 var(--sp-2);
   }
-  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-
-  h1 {
-    font-size: clamp(28px, 4vw, 38px);
-    font-weight: 800;
-    letter-spacing: -.01em;
-    margin: 0 0 12px;
-    text-wrap: balance;
+  h1{
+    font-family:"IBM Plex Serif",Georgia,serif;
+    font-weight:700;
+    font-size:clamp(2rem,4.4vw,3rem);
+    line-height:1.1;
+    letter-spacing:-.015em;
+    margin:0 0 var(--sp-3);
+    text-wrap:balance;
   }
-  .lede {
-    font-size: 17px;
-    color: var(--ink-muted);
-    max-width: 62ch;
-    margin: 0;
+  .standfirst{
+    font-size:1.08rem;
+    color:var(--ink-soft);
+    max-width:62ch;
+    margin:0;
   }
 
-  h2 {
-    font-size: 22px;
-    font-weight: 700;
-    margin: 0 0 4px;
-    letter-spacing: -.005em;
-  }
-  h2 .num {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--accent);
-    margin-right: 10px;
-  }
-  .section-hint {
-    color: var(--ink-muted);
-    font-size: 14.5px;
-    margin: 0 0 20px;
+  .layout{display:grid; grid-template-columns:1fr; gap:var(--sp-5);}
+  @media(min-width:1000px){
+    .layout{grid-template-columns:236px minmax(0,1fr); gap:var(--sp-6);}
   }
 
-  section { margin-bottom: 52px; }
-  section + section { padding-top: 4px; border-top: 1px solid var(--border); padding-top: 52px; }
+  /* ── Contents rail ────────────────────────────────────────── */
+  nav.toc{align-self:start;}
+  @media(min-width:1000px){
+    nav.toc{position:sticky; top:var(--sp-4); max-height:calc(100vh - 3rem); overflow-y:auto;}
+  }
+  .toc-title{
+    font-size:.7rem; letter-spacing:.14em; text-transform:uppercase;
+    font-weight:600; color:var(--muted);
+    margin:0 0 var(--sp-2); padding-bottom:var(--sp-2);
+    border-bottom:1px solid var(--line);
+  }
+  .toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; counter-reset:toc;}
+  .toc a{
+    display:flex; gap:.6rem; align-items:baseline;
+    padding:.34rem .5rem;
+    color:var(--ink-soft); text-decoration:none;
+    font-size:.9rem; border-radius:4px;
+    border-left:2px solid transparent;
+  }
+  .toc a::before{
+    counter-increment:toc; content:counter(toc);
+    font-family:"IBM Plex Mono",monospace; font-size:.72rem;
+    color:var(--muted); font-variant-numeric:tabular-nums;
+  }
+  .toc a:hover{background:var(--accent-wash); color:var(--accent-deep); border-left-color:var(--accent);}
+  .toc a:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
-    padding: 22px 24px;
+  /* ── Sections ─────────────────────────────────────────────── */
+  section{
+    scroll-margin-top:1.5rem;
+    padding-top:var(--sp-4);
+    margin-bottom:var(--sp-5);
   }
-  .card + .card { margin-top: 14px; }
+  section + section{border-top:1px solid var(--line-soft);}
 
-  /* Numbered launch sequence */
-  .steps { display: flex; flex-direction: column; gap: 0; }
-  .step {
-    display: grid;
-    grid-template-columns: 36px 1fr;
-    gap: 16px;
-    padding: 16px 0;
-    border-bottom: 1px solid var(--border);
+  h2{
+    font-family:"IBM Plex Serif",Georgia,serif;
+    font-size:1.62rem; font-weight:700; line-height:1.2;
+    letter-spacing:-.01em;
+    margin:0 0 var(--sp-3);
+    text-wrap:balance;
   }
-  .step:last-child { border-bottom: none; }
-  .step-num {
-    font-family: "JetBrains Mono", monospace;
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--accent);
-    background: var(--accent-soft);
-    border: 1px solid var(--border);
-    width: 32px; height: 32px;
-    border-radius: 9px;
-    display: flex; align-items: center; justify-content: center;
+  h3{
+    font-size:1.02rem; font-weight:600;
+    margin:var(--sp-4) 0 var(--sp-2);
+    color:var(--ink);
   }
-  .step-body h3 {
-    margin: 3px 0 4px;
-    font-size: 15.5px;
-    font-weight: 700;
+  h4{
+    font-size:.78rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:var(--sp-3) 0 var(--sp-1);
   }
-  .step-body p { margin: 0; color: var(--ink-muted); font-size: 14.5px; }
-  .step-body .ui {
-    color: var(--ink);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1px 7px;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
-    font-weight: 500;
-  }
+  p{margin:0 0 var(--sp-3); max-width:var(--measure);}
+  ul,ol{margin:0 0 var(--sp-3); padding-left:1.2rem; max-width:var(--measure);}
+  li{margin-bottom:.32rem;}
+  li::marker{color:var(--muted);}
+  strong{font-weight:600;}
+  a{color:var(--accent-deep); text-underline-offset:2px;}
 
-  /* Folder tree */
-  .tree {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 13.5px;
-    line-height: 1.9;
-    white-space: pre;
-    overflow-x: auto;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 20px;
-  }
-  .tree .req { color: var(--danger); font-weight: 600; }
-  .tree .comment { color: var(--ink-muted); font-style: normal; }
-  .tree .path { color: var(--accent); font-weight: 600; }
-
-  /* Callouts */
-  .callout {
-    border-radius: 12px;
-    border: 1px solid;
-    padding: 16px 18px;
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 12px;
-    font-size: 14.5px;
-  }
-  .callout p { margin: 0 0 6px; }
-  .callout p:last-child { margin-bottom: 0; }
-  .callout .icon { font-size: 16px; line-height: 1.4; }
-  .callout.danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--ink); }
-  .callout.danger .icon { color: var(--danger); }
-  .callout.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--ink); }
-  .callout.warn .icon { color: var(--warn); }
-  .callout.ok { background: var(--success-bg); border-color: var(--success-border); color: var(--ink); }
-  .callout.ok .icon { color: var(--success); }
-  .callout strong { font-weight: 700; }
-  .callout code { background: rgba(0,0,0,.06); }
-  :root[data-theme="dark"] .callout code,
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .callout code { background: rgba(255,255,255,.08); } }
-
-  code, .kv code {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 1px 6px;
+  code:not(pre code){
+    font-size:.87em;
+    background:var(--code-bg);
+    color:var(--code-ink);
+    padding:.1em .38em;
+    border-radius:3px;
+    white-space:nowrap;
   }
 
-  pre.env {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
-    line-height: 1.75;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 18px;
-    overflow-x: auto;
-    margin: 0;
+  pre{
+    margin:0 0 var(--sp-3);
+    background:var(--surface-sunk);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:var(--sp-3);
+    overflow-x:auto;
+    font-size:.83rem;
+    line-height:1.62;
   }
-  pre.env .k { color: var(--accent); font-weight: 600; }
-  pre.env .c { color: var(--ink-muted); }
+  pre code{color:var(--ink-soft); background:none; padding:0;}
+  .c-key{color:var(--accent-deep); font-weight:500;}
+  .c-note{color:var(--muted);}
+  .c-ok{color:var(--ok);}
+  .c-warn{color:var(--warn);}
+  .c-crit{color:var(--crit);}
 
-  table.params {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
+  /* ── Tables ───────────────────────────────────────────────── */
+  .scroll-x{overflow-x:auto; margin-bottom:var(--sp-3); border:1px solid var(--line); border-radius:var(--radius);}
+  table{border-collapse:collapse; width:100%; font-size:.9rem;}
+  th,td{text-align:left; padding:.6rem .8rem; border-bottom:1px solid var(--line-soft); vertical-align:top;}
+  thead th{
+    background:var(--surface-sunk);
+    font-size:.72rem; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; white-space:nowrap;
   }
-  table.params th {
-    text-align: left;
-    font-size: 12px;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    color: var(--ink-muted);
-    font-weight: 600;
-    padding: 0 10px 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  table.params td {
-    padding: 12px 10px;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
-  }
-  table.params tr:last-child td { border-bottom: none; }
-  table.params td.key { font-family: "JetBrains Mono", monospace; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
-  table.params td.desc { color: var(--ink-muted); }
-  .badge {
-    display: inline-block;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: .03em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .badge.required { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger-border); }
-  .badge.default { color: var(--ink-muted); background: var(--surface-2); border: 1px solid var(--border); }
+  tbody tr:last-child td{border-bottom:none;}
+  td code{white-space:nowrap;}
 
-  .status-row { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
-  .status-row .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
-  .status-row.match .swatch { background: var(--success); }
-  .status-row.mismatch .swatch { background: var(--danger); }
-  .status-row.unknown .swatch { background: var(--warn); }
-  .status-grid { display: grid; gap: 10px; }
-
-  .faq dt {
-    font-weight: 700;
-    font-size: 15px;
-    margin-top: 18px;
+  /* ── Callouts ─────────────────────────────────────────────── */
+  .note{
+    border-left:3px solid var(--accent);
+    background:var(--accent-wash);
+    padding:var(--sp-3);
+    border-radius:0 var(--radius) var(--radius) 0;
+    margin:0 0 var(--sp-3);
+    max-width:var(--measure);
   }
-  .faq dt:first-child { margin-top: 0; }
-  .faq dd {
-    margin: 6px 0 0;
-    color: var(--ink-muted);
-    font-size: 14.5px;
+  .note.warn{border-left-color:var(--warn); background:var(--warn-wash);}
+  .note.crit{border-left-color:var(--crit); background:var(--crit-wash);}
+  .note p:last-child{margin-bottom:0;}
+  .note-label{
+    display:block;
+    font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; font-weight:600;
+    color:var(--accent-deep); margin-bottom:.3rem;
   }
+  .note.warn .note-label{color:var(--warn);}
+  .note.crit .note-label{color:var(--crit);}
 
-  footer {
-    margin-top: 64px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border);
-    color: var(--ink-muted);
-    font-size: 13px;
+  /* ── Pipeline ─────────────────────────────────────────────── */
+  .pipeline{list-style:none; padding:0; margin:0 0 var(--sp-3); counter-reset:step; max-width:none;}
+  .pipeline li{
+    display:grid; grid-template-columns:2rem 1fr; gap:var(--sp-3);
+    padding:var(--sp-3) 0; border-bottom:1px solid var(--line-soft);
+    margin:0;
+  }
+  .pipeline li:last-child{border-bottom:none;}
+  .pipeline li::before{
+    counter-increment:step; content:counter(step);
+    font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:.85rem;
+    color:var(--accent); border:1px solid var(--line); border-radius:50%;
+    width:2rem; height:2rem; display:grid; place-items:center;
+    background:var(--surface);
+  }
+  .pipeline b{display:block; font-weight:600; margin-bottom:.15rem;}
+  .pipeline span{color:var(--ink-soft); font-size:.93rem;}
+  .pipeline .where{
+    display:inline-block; font-family:"IBM Plex Mono",monospace;
+    font-size:.75rem; color:var(--muted); margin-top:.3rem;
   }
 
-  ::selection { background: var(--accent-soft); }
+  /* ── Error cards ──────────────────────────────────────────── */
+  .err{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:var(--surface);
+    margin-bottom:var(--sp-3);
+    overflow:hidden;
+  }
+  .err > summary{
+    cursor:pointer; padding:var(--sp-3);
+    display:flex; gap:.7rem; align-items:baseline;
+    font-weight:600; list-style:none;
+  }
+  .err > summary::-webkit-details-marker{display:none;}
+  .err > summary::after{
+    content:"+"; margin-left:auto; color:var(--muted);
+    font-family:"IBM Plex Mono",monospace; font-weight:400;
+  }
+  .err[open] > summary::after{content:"–";}
+  .err > summary:hover{background:var(--surface-sunk);}
+  .err > summary:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+  .sev{
+    flex:none; font-size:.64rem; letter-spacing:.08em; text-transform:uppercase;
+    font-weight:600; padding:.16rem .45rem; border-radius:3px;
+    position:relative; top:-1px;
+  }
+  .sev.crit{background:var(--crit-wash); color:var(--crit);}
+  .sev.warn{background:var(--warn-wash); color:var(--warn);}
+  .sev.info{background:var(--accent-wash); color:var(--accent-deep);}
+  .err-body{padding:0 var(--sp-3) var(--sp-3); border-top:1px solid var(--line-soft);}
+  .err-body > *:first-child{margin-top:var(--sp-3);}
+  .err-body p, .err-body ul, .err-body ol{max-width:none;}
+
+  .kv{display:grid; grid-template-columns:auto 1fr; gap:.3rem var(--sp-3); margin:0 0 var(--sp-3); font-size:.93rem;}
+  .kv dt{font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:600; padding-top:.25rem;}
+  .kv dd{margin:0;}
+
+  /* ── Contact ──────────────────────────────────────────────── */
+  .contact{
+    border:1px solid var(--accent);
+    background:var(--accent-wash);
+    border-radius:var(--radius);
+    padding:var(--sp-4);
+    display:flex; flex-wrap:wrap; gap:var(--sp-3) var(--sp-5);
+    align-items:flex-start;
+  }
+  .contact-who{font-family:"IBM Plex Serif",Georgia,serif; font-size:1.15rem; font-weight:600; margin:0 0 .15rem;}
+  .contact a{font-family:"IBM Plex Mono",monospace; font-size:.95rem; font-weight:500;}
+  .contact ul{margin:0; padding-left:1.1rem; font-size:.92rem; color:var(--ink-soft);}
+
+  footer{
+    margin-top:var(--sp-5); padding-top:var(--sp-3);
+    border-top:1px solid var(--line);
+    font-size:.82rem; color:var(--muted);
+    display:flex; flex-wrap:wrap; gap:var(--sp-3); justify-content:space-between;
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important; transition:none !important; scroll-behavior:auto !important;}
+  }
+  html{scroll-behavior:smooth;}
 </style>
-
+</head>
+<body>
 <div class="shell">
 
-  <header class="hero">
-    <div class="eyebrow"><span class="dot"></span>ВСК ДМС-ассистент · модуль «Сверка грузов»</div>
-    <h1>Сверка деклараций с генеральным полисом</h1>
-    <p class="lede">
-      Как настроить и запустить сверку деклараций на перевозку груза с условиями генерального
-      полиса и дополнительных соглашений (ДС). Инструкция охватывает только вкладку «Сверка
-      грузов» — модуль ДМС здесь не рассматривается.
-    </p>
+  <header class="masthead">
+    <p class="eyebrow">ВСК · Страхование грузов · Руководство оператора</p>
+    <h1>Сверка грузовых деклараций</h1>
+    <p class="standfirst">Как ассистент собирает матрицу правил из генерального полиса и ДС, где берёт перевозчиков и особые условия, как настраиваются промпты через <code>.env</code> и что делать, когда сервис модели отвечает таймаутом.</p>
   </header>
 
-  <section>
-    <h2><span class="num">01</span>Что должно быть на месте</h2>
-    <p class="section-hint">Единый комплект из двух программ — API-сервис работает в фоне, приложение с интерфейсом обращается к нему.</p>
-    <div class="card">
-      <table class="params">
-        <tr><td class="key">API-сервис.exe</td><td class="desc">Фоновый сервис. Принимает запросы на сверку, обращается к модели ИИ, сохраняет результат. Работает без окна — только чёрная консоль с логом.</td></tr>
-        <tr><td class="key">ВСК ДМС-ассистент.exe</td><td class="desc">Единое приложение с интерфейсом. Несмотря на название, внутри есть вкладка «Сверка грузов» — именно её нужно использовать.</td></tr>
-        <tr><td class="key">.env</td><td class="desc">Файл настроек рядом с <code>API-сервис.exe</code>. В нём — адрес модели ИИ, шаблоны промптов и общий файл особых условий. Настраивается один раз.</td></tr>
-      </table>
-    </div>
-    <div class="callout warn" style="margin-top:14px">
-      <div class="icon">&#9888;</div>
-      <div><p>Шаблон формы результата (<code>reconciliation_form.xlsx</code>) уже встроен в <code>API-сервис.exe</code> — отдельно копировать его не нужно.</p></div>
-    </div>
-  </section>
+  <div class="layout">
 
-  <section>
-    <h2><span class="num">02</span>Разовая настройка .env</h2>
-    <p class="section-hint">Делается один раз тем, кто разворачивает приложение. Дальше пользователь этот файл не трогает.</p>
+    <nav class="toc" aria-label="Содержание">
+      <p class="toc-title">Содержание</p>
+      <ol>
+        <li><a href="#start">Перед запуском</a></li>
+        <li><a href="#pipeline">Как это работает</a></li>
+        <li><a href="#folders">Папка полиса и ДС</a></li>
+        <li><a href="#carriers">Перечень перевозчиков</a></li>
+        <li><a href="#declarations">Декларации</a></li>
+        <li><a href="#knowledge">База знаний и особые условия</a></li>
+        <li><a href="#prompts">Промпты через .env</a></li>
+        <li><a href="#errors">Ошибки и что делать</a></li>
+        <li><a href="#timeouts">Таймауты модели</a></li>
+        <li><a href="#contact">Куда писать</a></li>
+      </ol>
+    </nav>
 
-    <div class="callout danger">
-      <div class="icon">&#9888;</div>
-      <div>
-        <p><strong>Провайдер модели должен быть указан явно.</strong> Значение по умолчанию в коде — <code>ollama</code> (локальная модель), которой на рабочей машине нет.</p>
-        <p>В <code>.env</code> обязательно: <code>AI_PROVIDER=qwen</code> — или <code>vsk</code>, если используется альтернативный API.</p>
-      </div>
-    </div>
+    <main>
 
-    <div class="card" style="margin-top:14px">
-      <table class="params">
-        <thead><tr><th>Параметр</th><th></th><th>Что означает</th></tr></thead>
-        <tbody>
-          <tr><td class="key">AI_PROVIDER</td><td><span class="badge required">обязательно</span></td><td class="desc"><code>qwen</code> или <code>vsk</code> — какой API модели использовать</td></tr>
-          <tr><td class="key">QWEN_API_URL / VSK_API_URL</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc">адрес модели — уже заполнен в поставке</td></tr>
-          <tr><td class="key">VSK_API_KEY</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc">токен доступа — уже зашит, менять не нужно</td></tr>
-          <tr><td class="key">MATRIX_AI_ROLE<br>MATRIX_PROMPT_TEMPLATE</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc">инструкция модели для извлечения пунктов из ГП и ДС (шаг 1 сверки)</td></tr>
-          <tr><td class="key">RECONCILIATION_AI_ROLE<br>RECONCILIATION_PROMPT_TEMPLATE</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc">инструкция модели для сверки декларации с матрицей правил (шаг 2)</td></tr>
-          <tr><td class="key">RECONCILIATION_RULES_BASE</td><td><span class="badge default">необязательно</span></td><td class="desc">файл с дополнительными правилами сверки (какие поля с какими пунктами сопоставлять). Пусто — модель решает сама по данным полиса</td></tr>
-          <tr><td class="key">SPECIAL_CONDITIONS_GLOBAL_PATH</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc">общий файл особых условий для всех клиентов, подключается к каждой сверке автоматически (см. ниже)</td></tr>
-          <tr><td class="key">DECLARATIONS_MONTH_FORMAT</td><td><span class="badge default">по умолчанию ок</span></td><td class="desc"><code>%Y-%m</code> — формат имени месячной подпапки в «Декларации/»</td></tr>
-        </tbody>
-      </table>
-    </div>
+      <!-- ══ 0 ══ -->
+      <section id="start">
+        <h2>Перед запуском</h2>
+        <p>Комплект — две программы на одной машине. Обе запускаются без установки и прав администратора.</p>
 
-    <div class="callout warn" style="margin-top:14px">
-      <div class="icon">&#128225;</div>
-      <div>
-        <p><strong>Общий файл особых условий</strong> сейчас указывает на сетевой путь:</p>
-        <pre class="env" style="margin:8px 0"><span class="k">SPECIAL_CONDITIONS_GLOBAL_PATH</span>=\\fstorfs\disk_m\БОС_ФСЦ_УПиСД\ДГ\Информационный\ДпГ УПиСД ФСЦ.xlsm</pre>
-        <p>Он должен быть доступен с машины, где запущен <code>API-сервис.exe</code> (корпоративная сеть). Если файл недоступен — сверка всё равно пройдёт, просто без общих особых условий.</p>
-      </div>
-    </div>
-
-    <div class="callout ok" style="margin-top:14px">
-      <div class="icon">&#8505;</div>
-      <div><p>Поля <code>NORMATIVE_BASE</code>, <code>AI_ROLE</code>, <code>AI_PROMPT_TEMPLATE</code> относятся к модулю ДМС и в сверке грузов не используются — но без них приложение вообще не запустится. Не удаляйте их из <code>.env</code>, даже если работаете только с грузами.</p></div>
-    </div>
-  </section>
-
-  <section>
-    <h2><span class="num">03</span>Организация папки полиса</h2>
-    <p class="section-hint">Один клиент — одна папка, в любом месте на диске. Приложение само найдёт в ней всё нужное по названиям файлов.</p>
-
-    <div class="tree">Папка полиса ООО «Клиент»/
-├── <span class="req">ГП</span> Договор № 2506Q13GR2182.docx      <span class="comment">← имя обязательно начинается с «ГП»</span>
-├── ДС/                                        <span class="comment">← подпапка для доп. соглашений</span>
-│   ├── ДС 1 (п.9).docx                        <span class="comment">← правит пункт 9</span>
-│   ├── ДС 2 (п.5).docx                        <span class="comment">← правит пункт 5</span>
-│   └── ДС 3 (п.9, п.7).docx                   <span class="comment">← более новый ДС побеждает при совпадении пункта</span>
-├── особые условия — ООО Клиент.xlsx           <span class="comment">← необязательно, находится по слову в имени</span>
-└── Декларации/
-    ├── 199.xlsx
-    ├── 200.xlsx
-    └── 2026-06/                               <span class="comment">← можно группировать по месяцам</span>
-        ├── 508 совпадает.xls
-        └── 511 не совпадает.xlsx</div>
-
-    <div class="card" style="margin-top:14px">
-      <table class="params">
-        <tr><td class="key">Ген. полис</td><td class="desc">Имя файла должно начинаться с «ГП». Формат: .xlsx, .xlsm, .xls, .docx, .doc, .pdf.</td></tr>
-        <tr><td class="key">ДС</td><td class="desc">Подпапка «ДС» внутри папки полиса. Имя файла: «ДС {номер} (п.{X}, п.{Y})» — номер обязателен, номера пунктов в скобках желательны для точного сопоставления. При совпадении номера пункта побеждает ДС с бо́льшим номером.</td></tr>
-        <tr><td class="key">Декларации</td><td class="desc">Подпапка «Декларации» — можно класть файлы напрямую или раскладывать по месячным подпапкам любой вложенности, сканируется рекурсивно.</td></tr>
-        <tr><td class="key">Особые условия клиента</td><td class="desc">Необязательный файл прямо в папке полиса, в имени которого встречается «особые условия» или «особых условий». Если такого файла нет или нужен другой — выбирается вручную в приложении.</td></tr>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <h2><span class="num">04</span>Запуск</h2>
-    <p class="section-hint">Порядок важен: сервис должен подняться раньше приложения.</p>
-
-    <div class="card steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <h3>Запустите API-сервис.exe</h3>
-          <p>Дождитесь в консоли строки <code>Uvicorn running on http://127.0.0.1:8001</code>. Окно не закрывать — сервис должен работать всё время, пока идёт сверка.</p>
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Что</th><th>Роль</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><code>API-сервис.exe</code></td>
+                <td>Фоновый сервис: принимает запросы, обращается к модели, сохраняет результат. Без окна — только консоль с логом. <strong>Запускается первым</strong>, окно не закрывать.</td>
+              </tr>
+              <tr>
+                <td><code>ВСК ДМС-ассистент.exe</code></td>
+                <td>Приложение с интерфейсом. Несмотря на название, внутри есть вкладка <strong>«Сверка грузов»</strong> — нужна именно она. Запускается вторым.</td>
+              </tr>
+              <tr>
+                <td><code>.env</code></td>
+                <td>Файл настроек рядом с <code>API-сервис.exe</code>: адрес модели, промпты, пути к базам. Настраивается один раз при развёртывании.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <h3>Запустите ВСК ДМС-ассистент.exe</h3>
-          <p>Откроется окно с двумя вкладками наверху.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <h3>Переключитесь на вкладку <span class="ui">Сверка грузов</span></h3>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-body">
-          <h3><span class="ui">Выбрать папку</span> — укажите папку полиса</h3>
-          <p>Ту, что собрана по схеме из раздела 3.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <div class="step-body">
-          <h3>Особые условия клиента — по необходимости</h3>
-          <p>Если авто-поиск не нашёл файл или нужен другой — <span class="ui">Выбрать</span> рядом с полем.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">6</div>
-        <div class="step-body">
-          <h3><span class="ui">Выбрать декларации</span> — отметьте файлы для сверки</h3>
-          <p>Можно выделить сразу несколько. Кнопка <span class="ui">Добавить ещё</span> дополняет список, не сбрасывая уже выбранное.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">7</div>
-        <div class="step-body">
-          <h3>При необходимости — «Пересчитать матрицу актуальных правил заново»</h3>
-          <p>Матрица правил (пункты ГП + ДС) кэшируется по папке полиса. Галочку включайте, только если задним числом правили ГП или ДС и файлы не изменились по дате — иначе кэш обновится сам.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">8</div>
-        <div class="step-body">
-          <h3><span class="ui">Начать сверку</span></h3>
-          <p>Кнопка сменится на «Сверка…», внизу пойдёт счётчик времени. Результат по каждой декларации — отдельный файл, открывается кнопкой <span class="ui">Открыть</span> прямо из приложения.</p>
-        </div>
-      </div>
-    </div>
-  </section>
 
-  <section>
-    <h2><span class="num">05</span>Как читать результат</h2>
-    <p class="section-hint">Файл результата — тот же шаблон, что и раньше, с закреплённой строкой заголовка. Цвет в столбце «Результат проверки» соответствует статусу.</p>
-    <div class="card">
-      <div class="status-grid">
-        <div class="status-row match"><div class="swatch"></div><div><strong>совпадает</strong> — поле декларации полностью соответствует пункту полиса</div></div>
-        <div class="status-row mismatch"><div class="swatch"></div><div><strong>не совпадает</strong> — есть расхождение, требует внимания</div></div>
-        <div class="status-row unknown"><div class="swatch"></div><div><strong>не знаю</strong> — модели не хватило данных для однозначного вывода</div></div>
-      </div>
-    </div>
-  </section>
+        <div class="note warn">
+          <span class="note-label">Провайдер модели нужно указать явно</span>
+          <p>В <code>.env</code> обязателен <code>AI_PROVIDER=qwen</code> (или <code>vsk</code>). Значение по умолчанию в коде — <code>ollama</code>, локальная модель, которой на рабочей машине нет. Остальные параметры в поставке уже заполнены.</p>
+        </div>
 
-  <section>
-    <h2><span class="num">06</span>Частые вопросы</h2>
-    <dl class="faq">
-      <dt>Почему сверка идёт долго при большой декларации?</dt>
-      <dd>Каждая строка перевозки в мультистрочной декларации — это отдельный запрос к модели. Декларация на 10 перевозок — это 10 обращений подряд, отсюда и время.</dd>
+        <p>Формы ответа встроены в <code>API-сервис.exe</code> — копировать их отдельно не нужно. Задавать <code>RECONCILIATION_TEMPLATE_*</code> следует только для замены на свои.</p>
 
-      <dt>Приложение не находит «Особые условия клиента» само</dt>
-      <dd>Автопоиск смотрит только на имя файла в папке полиса — там должно быть слово «особые условия» или «особых условий». Если файл называется иначе, выберите его вручную кнопкой «Выбрать».</dd>
+        <h3>Порядок запуска</h3>
+        <ol>
+          <li>Запустить <code>API-сервис.exe</code> и дождаться строки <code>Uvicorn running on http://127.0.0.1:8001</code>.</li>
+          <li>Запустить <code>ВСК ДМС-ассистент.exe</code>.</li>
+          <li>Перейти на вкладку «Сверка грузов».</li>
+        </ol>
+        <p>Либо <code>run-all.bat</code> — запускает обе программы по порядку и подставляет настройки прокси, если они заданы.</p>
+      </section>
 
-      <dt>Нужно ли пересчитывать матрицу правил при каждой сверке?</dt>
-      <dd>Нет. Матрица строится один раз на папку полиса и кэшируется — повторная сверка деклараций той же папки использует готовый результат. Пересчёт нужен только если правки в ГП/ДС не отразились на дате изменения файла.</dd>
-    </dl>
-  </section>
+      <!-- ══ 1 ══ -->
+      <section id="pipeline">
+        <h2>Как это работает</h2>
+        <p>Один запрос <code>POST /api/reconcile</code> проходит пять шагов. Порядок важен: каждый следующий шаг использует результат предыдущего.</p>
 
-  <footer>
-    Модуль «Сверка грузов» · ВСК ДМС-ассистент
-  </footer>
+        <ol class="pipeline">
+          <li>
+            <div>
+              <b>Найти файлы</b>
+              <span>В указанной папке ищется генеральный полис, папка ДС и декларации. Ничего не читается — только определяется, что читать.</span>
+              <span class="where">лог: «Ген. полис: …», «Найдено ДС (N): …»</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <b>Построить матрицу актуальных правил</b>
+              <span>Модель извлекает пункты из текста ГП и из каждого ДС по отдельности. Затем по каждому номеру пункта побеждает редакция из ДС с наибольшим номером. Результат кэшируется в <code>_matrix_cache.json</code>.</span>
+              <span class="where">лог: «Итоговая матрица правил: N действующих пунктов»</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <b>Подтянуть особые условия</b>
+              <span>Из текста ГП извлекается номер полиса и страхователь — по ним ищется строка в общем файле особых условий.</span>
+              <span class="where">лог: «Особые условия (общие): ключ поиска — № …»</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <b>Найти перечень перевозчиков</b>
+              <span>Если приложение есть — его текст пойдёт в промпт, и перевозчик из декларации будет с ним сверен.</span>
+              <span class="where">лог: «Перечень перевозчиков: НАЙДЕН / НЕ НАЙДЕНО»</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <b>Сверить каждую декларацию</b>
+              <span>Матрица + особые условия + перевозчики + форма ответа уходят в модель. Результат пишется в Excel рядом с исходной декларацией.</span>
+              <span class="where">файл: «{номер} – результат проверки.xlsx»</span>
+            </div>
+          </li>
+        </ol>
 
+        <div class="note">
+          <span class="note-label">Матрица пересобирается каждый раз</span>
+          <p>По умолчанию <code>force_rebuild_matrix = true</code>, и галочка в интерфейсе стоит. Это дороже по времени, но исключает работу по устаревшему кэшу. Снимайте галочку только когда полис и ДС точно не менялись.</p>
+        </div>
+      </section>
+
+      <!-- ══ 2 ══ -->
+      <section id="folders">
+        <h2>Папка полиса и ДС</h2>
+        <p>Ожидаемая структура. Отклонения по именам допустимы — как именно, описано ниже.</p>
+
+<pre><code>Папка клиента/
+├── <span class="c-key">ГП</span> страхования грузов.docx        <span class="c-note">← или папка «текст ГП»</span>
+├── <span class="c-key">ДС</span>/                                <span class="c-note">← или «Доп. соглашения»</span>
+│   ├── ДС 1 (п.5, п.11.9)/            <span class="c-note">← пункты берутся ОТСЮДА</span>
+│   │   ├── ДС - 1.docx                <span class="c-note">← текст соглашения</span>
+│   │   └── ЛС к ДС 1.xls              <span class="c-note">× вложение, игнорируется</span>
+│   └── ДС 2 (п.7)/
+│       └── ДС - 2.docx
+└── <span class="c-key">Декларации</span>/
+    └── 2026-08/
+        └── 200.xlsx</code></pre>
+
+        <h3>Генеральный полис</h3>
+        <p>Ищется файл, имя которого начинается с <code>ГП</code>. Если такого нет — ищется подпапка со словом «ГП» в названии (например <code>текст ГП</code>), и берётся первый документ из неё.</p>
+
+        <h3>Дополнительные соглашения</h3>
+        <p>Сначала проверяется папка с точным именем <code>ДС</code>. Если её нет — перебираются подпапки, и берётся первая, чьё имя читается как ДС: <code>Доп. соглашения</code>, <code>ДС (доп. соглашения)</code> и т. п.</p>
+
+        <div class="note warn">
+          <span class="note-label">Номера пунктов берутся из имени папки, не файла</span>
+          <p>В <code>ДС 1 (п.5, п.11.9)/ДС - 1.docx</code> пункты <code>5</code> и <code>11.9</code> прочитаются из имени <em>папки</em>. Файл может называться как угодно. Если пункты не указаны в имени папки, модель будет извлекать пункты вслепую по всему документу — точность падает. В логе это видно: «пункты не указаны в имени папки».</p>
+        </div>
+
+        <h3>Что игнорируется</h3>
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Что</th><th>Пример</th><th>Почему</th></tr></thead>
+            <tbody>
+              <tr><td>Файлы блокировки Word</td><td><code>~$ДС - 1.docx</code></td><td>Создаётся, пока документ открыт. Не является документом — раньше ронял весь запуск.</td></tr>
+              <tr><td>Листы согласования</td><td><code>ЛС к ДС 1.xls</code></td><td>Содержит «ДС 1» в имени, но не является текстом соглашения.</td></tr>
+              <tr><td>Перечни</td><td><code>Перечень перевозчиков.docx</code></td><td>Обрабатывается отдельно, см. следующий раздел.</td></tr>
+              <tr><td>Наши же артефакты</td><td><code>*_llm_debug.md</code>, <code>*_llm_output.json</code></td><td>Пишутся рядом с каждым обработанным документом.</td></tr>
+              <tr><td>Неподдерживаемые форматы</td><td><code>.md</code>, <code>.json</code>, <code>.zip</code></td><td>Читаются только <code>.docx .doc .xlsx .xlsm .xls .pdf</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Всё пропущенное перечисляется в логе строкой «В папке ДС пропущено файлов — N» с причиной по каждому. Если нужный документ попал в этот список — смотрите причину, она там указана.</p>
+
+        <h3>Если структура другая</h3>
+        <p>Пути можно задать явно, минуя автопоиск:</p>
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Поле запроса</th><th>Что делает</th></tr></thead>
+            <tbody>
+              <tr><td><code>policy_file_override</code></td><td>Прямой путь к файлу ГП с любым именем</td></tr>
+              <tr><td><code>ds_folder_override</code></td><td>Прямой путь к папке с ДС</td></tr>
+              <tr><td><code>declaration_paths</code></td><td>Пути к файлам <em>или</em> папкам деклараций</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══ 3 ══ -->
+      <section id="carriers">
+        <h2>Перечень перевозчиков</h2>
+        <p>Отдельное приложение к полису со списком допущенных перевозчиков. Если оно есть — перевозчик, заявленный в декларации, сверяется с этим списком; если его нет в перечне, результат по этому полю «не совпадает».</p>
+
+        <h3>Порядок поиска</h3>
+        <ol>
+          <li><strong>Папка ДС</strong> — файлы, в имени которых есть «перевозчик». Если их несколько, берётся тот, что относится к ДС с <strong>наибольшим номером</strong>: новое ДС заменяет перечень старого.</li>
+          <li><strong>Рядом с текстом ГП</strong> — если в ДС ничего не нашлось, проверяется папка «текст ГП», затем корень папки полиса.</li>
+        </ol>
+
+        <p>Итог всегда пишется в лог одной из двух строк:</p>
+<pre><code><span class="c-ok">[INFO]</span> Перечень перевозчиков: НАЙДЕН — ДС 7 (перевозчики).docx
+       (источник: ДС 7, 4210 символов)
+
+<span class="c-warn">[INFO]</span> Перечень перевозчиков: приложение НЕ НАЙДЕНО
+       (ни в папке ДС, ни рядом с текстом ГП) — проверка перевозчика не выполняется</code></pre>
+
+        <div class="note warn">
+          <span class="note-label">Отсутствие перечня не является ошибкой</span>
+          <p>Если приложения нет, сверка идёт дальше — просто без проверки перевозчика. Это нормально для полисов без такого ограничения. Но если вы <em>ожидали</em> проверку, а в логе «НЕ НАЙДЕНО» — проверьте, что в имени файла есть слово «перевозчик» и что он лежит в папке ДС или рядом с текстом ГП.</p>
+        </div>
+      </section>
+
+      <!-- ══ 4 ══ -->
+      <section id="declarations">
+        <h2>Декларации</h2>
+        <p>Если пути не заданы, декларации берутся из подпапки <code>Декларации</code> рекурсивно — включая помесячные подпапки. Номер декларации берётся из имени файла (первое число из 2–6 цифр).</p>
+
+        <h3>Два вида форм</h3>
+        <p>Вид определяется по структуре документа, без обращения к модели. Ключевой признак — <strong>колонка «№ п/п»</strong> и пронумерованные под ней строки.</p>
+
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Вид</th><th>Признак</th><th>Обработка</th><th>Нумерация в отчёте</th><th>Форма ответа</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Вертикальная</strong><br><span style="color:var(--muted);font-size:.85rem">одна перевозка</span></td>
+                <td>Список полей сверху вниз, без таблицы «№ п/п»</td>
+                <td>Один вызов модели на весь документ</td>
+                <td><code>200</code></td>
+                <td>Структура проверки декларации</td>
+              </tr>
+              <tr>
+                <td><strong>Горизонтальная (ПСГ)</strong><br><span style="color:var(--muted);font-size:.85rem">несколько перевозок</span></td>
+                <td>Таблица «№ п/п», 2+ пронумерованные строки</td>
+                <td>Один вызов на каждую перевозку</td>
+                <td><code>200/1</code>, <code>200/2</code>, …</td>
+                <td>Структура проверки декларации ПСГ</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Для мультистрочной декларации каждый фрагмент несёт преамбулу документа — страхователя, номер полиса, период. Иначе по одной строке нельзя было бы проверить документные поля.</p>
+
+        <div class="note warn">
+          <span class="note-label">Проверяйте вид в логе</span>
+          <p>По каждой декларации печатается строка вида <code>Декларация №200: тип=multi, форма=горизонтальная (ПСГ), строк перевозки=3</code>. Если у документа с несколькими перевозками стоит <code>форма=вертикальная</code> — значит, в нём не распознана колонка «№ п/п», и он будет обработан как одна перевозка. Это самый вероятный способ получить неполный отчёт.</p>
+        </div>
+
+        <h3>Результат</h3>
+        <p>Файл <code>{номер} – результат проверки.xlsx</code> сохраняется <strong>рядом с исходной декларацией</strong>. Имя файла никогда не содержит суффикса перевозки — <code>200/1</code> и <code>200/2</code> живут строками внутри одного файла.</p>
+        <p>Строки отчёта следуют форме ответа: порядок и наименования полей берутся из шаблона, а не из того, что вернула модель. Если по полю ответа не было — строка всё равно появится со статусом <code>не проверено</code>.</p>
+
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Заливка</th><th>Что означает</th></tr></thead>
+            <tbody>
+              <tr><td><span style="color:var(--ok);font-weight:600">Зелёная</span></td><td>совпадает</td></tr>
+              <tr><td><span style="color:var(--crit);font-weight:600">Красная</span></td><td>не совпадает</td></tr>
+              <tr><td><span style="color:var(--warn);font-weight:600">Жёлтая</span></td><td>Требует ручной проверки: статус «совпадает», но комментарий описывает расхождение. В комментарий добавляется пометка <code>[ТРЕБУЕТ ПРОВЕРКИ]</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Жёлтые строки — это места, где модель себе противоречит. Статус намеренно <em>не</em> переписывается автоматически: решение остаётся за специалистом.</p>
+      </section>
+
+      <!-- ══ 5 ══ -->
+      <section id="knowledge">
+        <h2>База знаний и особые условия</h2>
+
+        <h3>Логика сверки</h3>
+        <p><code>RECONCILIATION_RULES_BASE</code> — папка или файл с инструкцией для модели: какие поля декларации с какими пунктами полиса сопоставлять и как их трактовать. Это <em>не</em> каталог программ страхования (тот используется другим, ДМС-конвейером через <code>NORMATIVE_BASE</code>).</p>
+        <p>Содержимое подставляется в промпт сверки целиком. Обновляется без перезапуска сервиса — файлы читаются на каждый запрос.</p>
+
+        <h3>Особые условия</h3>
+        <p>Два источника, оба необязательные:</p>
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Источник</th><th>Откуда</th><th>Как ищется</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Общий</strong></td>
+                <td><code>SPECIAL_CONDITIONS_GLOBAL_PATH</code></td>
+                <td>По ключу: из текста ГП извлекается номер полиса и страхователь, затем ищется совпадающая строка на листах «ГП» и «ОБОРОННЫЙ»</td>
+              </tr>
+              <tr>
+                <td><strong>Клиентский</strong></td>
+                <td><code>special_conditions_path</code> или файл со словами «особые условия» в папке полиса</td>
+                <td>Загружается целиком</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Если есть оба — они объединяются, и клиентский помечается как приоритетный при конфликте. Разрешение конфликта оставлено модели: она видит пометку и решает по ситуации.</p>
+
+        <div class="note">
+          <span class="note-label">Почему общий файл ищется по ключу, а не грузится целиком</span>
+          <p>Это общая книга на тысячи строк и несколько листов. Полная её подстановка переполняла контекст модели и давала <code>400 Bad Request</code>. Поэтому берутся только строки текущего полиса.</p>
+        </div>
+      </section>
+
+      <!-- ══ 6 ══ -->
+      <section id="prompts">
+        <h2>Промпты через .env</h2>
+        <p>Промпты не зашиты в код — они целиком в <code>.env</code>. Каждый состоит из двух переменных: <strong>роль</strong> (кто модель и что от неё требуется) и <strong>шаблон</strong> (структура сообщения с подстановками).</p>
+
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Шаг</th><th>Роль</th><th>Шаблон</th></tr></thead>
+            <tbody>
+              <tr><td>Извлечение пунктов из ГП и ДС</td><td><code>MATRIX_AI_ROLE</code></td><td><code>MATRIX_PROMPT_TEMPLATE</code></td></tr>
+              <tr><td>Сверка декларации</td><td><code>RECONCILIATION_AI_ROLE</code></td><td><code>RECONCILIATION_PROMPT_TEMPLATE</code></td></tr>
+              <tr><td>ДМС-конвейер <span style="color:var(--muted)">(другой продукт)</span></td><td><code>AI_ROLE</code></td><td><code>AI_PROMPT_TEMPLATE</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Подстановки</h3>
+        <p>В шаблоне доступны только перечисленные ниже <code>{ключи}</code>. Лишний ключ — ошибка при запуске сверки; пропущенный ключ просто не подставится.</p>
+
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Ключ</th><th>Доступен в</th><th>Что подставляется</th></tr></thead>
+            <tbody>
+              <tr><td><code>{role}</code></td><td>оба</td><td>Соответствующая переменная <code>*_AI_ROLE</code></td></tr>
+              <tr><td><code>{source_text}</code></td><td>оба</td><td>Текст документа: ГП/ДС для матрицы, декларация для сверки</td></tr>
+              <tr><td><code>{reconciliation_logic}</code></td><td>сверка</td><td>Содержимое <code>RECONCILIATION_RULES_BASE</code></td></tr>
+              <tr><td><code>{rules_matrix}</code></td><td>сверка</td><td>Матрица актуальных правил таблицей</td></tr>
+              <tr><td><code>{special_conditions}</code></td><td>сверка</td><td>Общие + клиентские особые условия</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Что дописывается автоматически</h3>
+        <p>Три блока добавляются к промпту в коде, <strong>после</strong> вашего шаблона — их не нужно (и нельзя) вставлять ключами:</p>
+        <ul>
+          <li><strong>Перечень перевозчиков</strong> — если приложение найдено</li>
+          <li><strong>Обязательный список полей</strong> — из выбранной формы ответа, чтобы модель вернула ровно эти строки в этом порядке</li>
+          <li><strong>Правило статуса</strong> — только «совпадает» / «не совпадает», и статус обязан соответствовать комментарию</li>
+        </ul>
+        <p>Для ДС дополнительно дописывается указание, какие именно пункты правит это соглашение — если они есть в имени папки.</p>
+
+        <h3>Правила записи</h3>
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Правило</th><th>Пояснение</th></tr></thead>
+            <tbody>
+              <tr><td>Всё в одну строку</td><td>Перенос внутри значения обрывает переменную. Для переноса строки пишите <code>\n</code> — они разворачиваются при чтении.</td></tr>
+              <tr><td>Без кавычек вокруг значения</td><td>Кавычки попадут в текст промпта.</td></tr>
+              <tr><td>Фигурные скобки только для ключей</td><td>Если нужна скобка в тексте — удвойте: <code>{{</code> и <code>}}</code>.</td></tr>
+              <tr><td>Перезапуск обязателен</td><td><code>.env</code> читается один раз при старте. После правки промпта перезапустите <code>API-сервис.exe</code>.</td></tr>
+              <tr><td>У EXE свой файл</td><td>Собранный EXE читает <code>dist\.env</code>, а не корневой. Правьте тот, что лежит рядом с EXE.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Пример</h3>
+<pre><code><span class="c-key">RECONCILIATION_AI_ROLE</span>=Ты — специалист по сверке деклараций на перевозку груза
+с условиями генерального полиса. Документы могут быть на русском, английском
+или на двух языках одновременно.
+
+<span class="c-key">RECONCILIATION_PROMPT_TEMPLATE</span>={role}\n\n## ЛОГИКА СВЕРКИ:\n{reconciliation_logic}
+\n\n## МАТРИЦА АКТУАЛЬНЫХ ПРАВИЛ:\n{rules_matrix}\n\n## ОСОБЫЕ УСЛОВИЯ:
+\n{special_conditions}\n\n## ДЕКЛАРАЦИЯ:\n{source_text}\n\n## ЗАДАЧА:\nСверь
+каждое значимое поле...\n\n## ОТВЕТ:</code></pre>
+        <p class="c-note" style="font-size:.85rem;color:var(--muted)">В файле обе переменные записываются каждая в одну строку — здесь они разбиты только для читаемости.</p>
+
+        <div class="note">
+          <span class="note-label">Как проверить, что промпт применился</span>
+          <p>Рядом с каждым обработанным документом сохраняется <code>*_llm_debug.md</code> — это фактические ответы модели по чанкам. Если правка промпта не дала эффекта, сначала убедитесь, что сервис перезапущен, а правился нужный <code>.env</code>.</p>
+        </div>
+      </section>
+
+      <!-- ══ 7 ══ -->
+      <section id="errors">
+        <h2>Ошибки и что делать</h2>
+        <p>Раскройте строку, чтобы увидеть причину и порядок действий.</p>
+
+        <details class="err">
+          <summary><span class="sev warn">лог</span> ДС не найдены</summary>
+          <div class="err-body">
+            <dl class="kv">
+              <dt>Причина</dt><dd>Папка не найдена по имени, либо имена файлов внутри не распознаны.</dd>
+            </dl>
+            <p>В логе ниже этой строки перечислены просмотренные подпапки и пропущенные файлы с причиной по каждому. Начните с них.</p>
+            <ol>
+              <li>Проверьте, что папка называется <code>ДС</code> или содержит «доп. соглашения».</li>
+              <li>Проверьте имена файлов: распознаются <code>ДС 1</code>, <code>ДС №1</code>, <code>ДС_1</code>, <code>ДС-1</code>, <code>Доп. соглашение 1</code>.</li>
+              <li>Если имя нестандартное — задайте <code>ds_folder_override</code>.</li>
+            </ol>
+            <p><strong>Неочевидная причина:</strong> латинская <code>C</code> вместо кириллической <code>С</code> в имени папки. Визуально неотличимо. Сейчас такой случай распознаётся автоматически, но если увидите в логе «найдена по нестандартному имени» — стоит переименовать папку.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev crit">500</span> Не удалось обработать ни один документ полиса/ДС</summary>
+          <div class="err-body">
+            <dl class="kv">
+              <dt>Причина</dt><dd>Ни один документ не прочитался — почти всегда недоступен сервис модели.</dd>
+            </dl>
+            <p>Смотрите строки выше: если там <code>getaddrinfo failed</code> или таймауты — это сеть или сервис модели, см. <a href="#timeouts">следующий раздел</a>. Если <code>Package not found</code> — файл повреждён или это не тот формат, которым притворяется расширение.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev warn">лог</span> Матрица правил построена без N источник(ов)</summary>
+          <div class="err-body">
+            <p><strong>Это предупреждение важнее, чем выглядит.</strong> Пропущенное ДС означает, что его правки в матрицу не попали — сверка пойдёт по устаревшей редакции пункта, и внешне результат будет выглядеть нормальным.</p>
+            <p>Не принимайте такой отчёт как готовый. Найдите в логе строку <code>[ERROR] … Источник пропущен</code>, устраните причину и пересоберите матрицу.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev crit">422</span> Не найдено ни одной декларации для сверки</summary>
+          <div class="err-body">
+            <ol>
+              <li>Проверьте, что папка называется <code>Декларации</code> и лежит внутри папки полиса.</li>
+              <li>Проверьте форматы: <code>.xlsx .xlsm .xls .docx .doc .pdf</code>.</li>
+              <li>Либо укажите пути явно в <code>declaration_paths</code> — можно передать путь к папке целиком.</li>
+            </ol>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev crit">400</span> Bad Request от сервиса модели</summary>
+          <div class="err-body">
+            <dl class="kv">
+              <dt>Причина</dt><dd>Промпт превысил контекстное окно модели.</dd>
+            </dl>
+            <p>Чаще всего — из-за очень большого документа или разросшейся матрицы правил. Уменьшите <code>LLM_BATCH_SIZE</code> (например с 25 до 10): документ будет резаться на большее число меньших частей.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev warn">лог</span> Модель не вернула результат по этому полю</summary>
+          <div class="err-body">
+            <p>Строка попала в отчёт со статусом <code>не проверено</code>: форма ответа требует это поле, а модель его не вернула. Отчёт при этом структурно полный.</p>
+            <p>Если такое повторяется по одному и тому же полю — уточните его формулировку в промпте или в логике сверки.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev info">интерфейс</span> GUI не видит API</summary>
+          <div class="err-body">
+            <p>Проверьте, что окно <code>API-сервис.exe</code> запущено и в нём есть строка <code>Uvicorn running on http://127.0.0.1:8001</code>.</p>
+            <p><strong>Если в компании используется прокси</strong> — убедитесь, что <code>127.0.0.1</code> и <code>localhost</code> в списке исключений <code>NO_PROXY</code>. Иначе локальный запрос уходит на корпоративный прокси и не возвращается. Файл <code>load-proxy.bat</code> добавляет их принудительно, но проверить стоит.</p>
+          </div>
+        </details>
+
+        <details class="err">
+          <summary><span class="sev warn">сборка</span> pip: CERTIFICATE_VERIFY_FAILED</summary>
+          <div class="err-body">
+            <p>Прокси подменяет TLS-сертификаты. В <code>proxy.env</code> укажите корпоративный корневой сертификат через <code>PIP_CERT</code>, либо, если сертификат получить не удаётся, <code>PIP_TRUSTED_HOST</code>. Если у вас уже есть готовый <code>pip.ini</code> — достаточно прописать путь к нему в <code>PIP_CONFIG_FILE</code>.</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- ══ 8 ══ -->
+      <section id="timeouts">
+        <h2>Таймауты модели</h2>
+        <p>Самая частая проблема при работе с большими документами. Важно понимать: <strong>повторы происходят на двух уровнях</strong>, и один «зависший» чанк отнимает больше времени, чем кажется.</p>
+
+        <div class="scroll-x">
+          <table>
+            <thead><tr><th>Уровень</th><th>Попыток</th><th>Пауза</th><th>Что делает</th></tr></thead>
+            <tbody>
+              <tr><td>Внутри модели <span style="color:var(--muted)">(Qwen)</span></td><td>3</td><td>5 сек</td><td>Повтор при таймауте, 503/504, перегрузке</td></tr>
+              <tr><td>Внутри модели <span style="color:var(--muted)">(VSK AI)</span></td><td>5</td><td>5 сек</td><td>То же самое</td></tr>
+              <tr><td>Вокруг чанка</td><td>3</td><td>5 сек</td><td>Повтор всего чанка, затем пропуск</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Уровни перемножаются: один чанк на Qwen может быть повторён до <strong>девяти раз</strong>, на VSK AI — до пятнадцати. При таймауте ожидания это десятки минут на один чанк.</p>
+
+        <div class="note crit">
+          <span class="note-label">Таймауты у провайдеров различаются в 10 раз</span>
+          <p><code>QWEN</code> ждёт ответа <strong>600 секунд</strong>, <code>VSK AI</code> — <strong>60 секунд</strong>. Если после переключения <code>AI_PROVIDER</code> на <code>vsk</code> начались массовые таймауты на документах, которые раньше проходили, — причина в этом, а не в сети. Уменьшите <code>LLM_BATCH_SIZE</code>, чтобы части стали меньше и укладывались в минуту.</p>
+        </div>
+
+        <h3>Как это выглядит в логе</h3>
+<pre><code><span class="c-warn">[WARN]</span> Qwen таймаут (ReadTimeout), попытка 1/3, повтор через 5 сек
+<span class="c-warn">[WARN]</span> Qwen таймаут (ReadTimeout), попытка 2/3, повтор через 5 сек
+<span class="c-warn">[WARN]</span> Чанк 4: ошибка на попытке 1/3: Ошибка Qwen API: таймаут после 3 попыток
+<span class="c-crit">[ERROR]</span> Чанк 4 пропущен после 3 попыток</code></pre>
+
+        <h3>Что происходит после исчерпания попыток</h3>
+        <p>Чанк пропускается, обработка продолжается. Результат сохраняется с тем, что удалось получить. Это сознательное решение: лучше частичный отчёт, чем потеря всей работы.</p>
+
+        <div class="note warn">
+          <span class="note-label">Последствия зависят от того, что именно пропущено</span>
+          <p><strong>Пропущен чанк ГП или ДС</strong> — часть пунктов не попадёт в матрицу. Отчёт будет выглядеть нормальным, но сверка пойдёт по неполным правилам. Ищите строку «Матрица правил построена без N источник(ов)».</p>
+          <p><strong>Пропущен чанк декларации</strong> — в мультистрочной декларации выпадет одна перевозка. Нумерация оставшихся при этом не сдвигается: если пропущена вторая, третья останется <code>200/3</code>. По пропуску в нумерации это и видно.</p>
+        </div>
+
+        <h3>Порядок действий</h3>
+        <ol>
+          <li><strong>Повторите запуск.</strong> Таймауты обычно вызваны пиковой нагрузкой на сервис модели и проходят сами.</li>
+          <li><strong>Уменьшите <code>LLM_BATCH_SIZE</code></strong> в <code>.env</code> — с 25 до 10. Части станут меньше, каждый вызов быстрее. Обработка займёт больше вызовов, но с большей вероятностью дойдёт до конца.</li>
+          <li><strong>Проверьте доступность сервиса</strong> — адрес в <code>QWEN_API_URL</code> или <code>VSK_API_URL</code>. Ошибка <code>getaddrinfo failed</code> означает, что адрес вообще не резолвится: это сеть или прокси, а не модель.</li>
+          <li><strong>Если повторяется устойчиво</strong> — соберите лог и обращайтесь по контакту ниже.</li>
+        </ol>
+
+        <div class="note">
+          <span class="note-label">Что приложить к обращению</span>
+          <p>Полный вывод консоли <code>API-сервис.exe</code> за проблемный запуск и файлы <code>*_llm_debug.md</code> рядом с обработанными документами. По ним видно, на каком именно шаге и документе произошёл сбой.</p>
+        </div>
+      </section>
+
+      <!-- ══ 9 ══ -->
+      <section id="contact">
+        <h2>Куда писать</h2>
+        <div class="contact">
+          <div>
+            <p class="contact-who">Матьякубов Александр</p>
+            <a href="mailto:matyakubov@vsk.ru">matyakubov@vsk.ru</a>
+          </div>
+          <div>
+            <h4 style="margin-top:0">Приложите к письму</h4>
+            <ul>
+              <li>Полный лог консоли <code>API-сервис.exe</code></li>
+              <li>Путь к папке полиса, на которой воспроизводится</li>
+              <li>Файлы <code>*_llm_debug.md</code>, если они создались</li>
+              <li>Что ожидалось и что получилось фактически</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <span>Руководство оператора · сверка грузовых деклараций</span>
+        <span>САО «ВСК»</span>
+      </footer>
+
+    </main>
+  </div>
 </div>
+</body>
+</html>

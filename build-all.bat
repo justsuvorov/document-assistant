@@ -1,26 +1,34 @@
 @echo off
-REM ╨Я╨╛╨╗╨╜╨░╤П ╤Б╨▒╨╛╤А╨║╨░ ╨╛╨▒╨╛╨╕╤Е EXE ╤Д╨░╨╣╨╗╨╛╨▓ ╤Б ╨║╨╛╨┐╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡╨╝ ╨║╨╛╨╜╤Д╨╕╨│╨╛╨▓
+REM Файл сохранён в UTF-8, а cmd по умолчанию читает батники в OEM-кодировке
+REM (cp866). Без переключения кодовой страницы русский текст выводится
+REM кракозябрами, а главное - литералы с кириллицей внутри команд (пути вида
+REM "dist\API-сервис.exe") не совпадают с реальными именами файлов, и проверки
+REM ложно срабатывают как "файл не найден".
+
+REM Полная сборка обоих EXE файлов с копированием конфигов
 
 echo.
 echo ========================================
-echo  ╨б╨▒╨╛╤А╨║╨░ ╨Т╨б╨Ъ ╨Ф╨Ь╨б-╨░╤Б╤Б╨╕╤Б╤В╨╡╨╜╤В (2 EXE)
+echo  Сборка ВСК ДМС-ассистент (2 EXE)
 echo ========================================
 echo.
 
-REM ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╤З╤В╨╛ ╨╝╤Л ╨▓ ╨┐╤А╨░╨▓╨╕╨╗╤М╨╜╨╛╨╣ ╨┤╨╕╤А╨╡╨║╤В╨╛╤А╨╕╨╕
+REM Проверка что мы в правильной директории
 if not exist "main.py" (
-    echo ERROR: main.py ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜!
-    echo ╨Ч╨░╨┐╤Г╤Б╤В╨╕ ╤Н╤В╨╛╤В ╨▒╨░╤В╨╜╨╕╨║ ╨╕╨╖ ╨║╨╛╤А╨╜╤П ╨┐╤А╨╛╨╡╨║╤В╨░
+    echo ERROR: main.py не найден!
+    echo Запусти этот батник из корня проекта
     pause
     exit /b 1
 )
 
-call load-proxy.bat
+REM %~dp0 - папка самого батника: вызов работает независимо от текущего
+REM каталога и от настройки NoDefaultCurrentDirectoryInExePath.
+call "%~dp0load-proxy.bat"
 
 echo.
-echo [1/4] ╨г╤Б╤В╨░╨╜╨╛╨▓╨║╨░ ╨╖╨░╨▓╨╕╤Б╨╕╨╝╨╛╤Б╤В╨╡╨╣...
-if defined PIP_CONFIG_FILE echo         pip ╨╕╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В ╨║╨╛╨╜╤Д╨╕╨│: %PIP_CONFIG_FILE%
-if defined PIP_INDEX_URL   echo         ╨╕╨╜╨┤╨╡╨║╤Б ╨┐╨░╨║╨╡╤В╨╛╨▓: %PIP_INDEX_URL%
+echo [1/4] Установка зависимостей...
+if defined PIP_CONFIG_FILE echo         pip использует конфиг: %PIP_CONFIG_FILE%
+if defined PIP_INDEX_URL   echo         индекс пакетов: %PIP_INDEX_URL%
 
 pip install -r requirements.txt -q
 if errorlevel 1 goto :pip_failed
@@ -32,47 +40,54 @@ goto :pip_ok
 
 :pip_failed
 echo.
-echo ERROR: ╨╜╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╤Г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╤М ╨╖╨░╨▓╨╕╤Б╨╕╨╝╨╛╤Б╤В╨╕.
+echo ERROR: не удалось установить зависимости.
 echo.
-echo ╨Х╤Б╨╗╨╕ ╨╛╤И╨╕╨▒╨║╨░ ╤Б╨▓╤П╨╖╨░╨╜╨░ ╤Б ╤Б╨╡╤В╤М╤О ╨╕╨╗╨╕ SSL тАФ ╨┐╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨┐╤А╨╛╨║╤Б╨╕:
-echo   1. ╨б╨║╨╛╨┐╨╕╤А╤Г╨╣╤В╨╡ proxy.env.example ╨▓ proxy.env ╨╕ ╤Г╨║╨░╨╢╨╕╤В╨╡ ╨░╨┤╤А╨╡╤Б ╨┐╤А╨╛╨║╤Б╨╕
-echo   2. ╨Я╤А╨╕ ╨╛╤И╨╕╨▒╨║╨╡ SSLError/CERTIFICATE_VERIFY_FAILED ╤Г╨║╨░╨╢╨╕╤В╨╡ ╨▓ proxy.env
-echo      ╨║╨╛╤А╨┐╨╛╤А╨░╤В╨╕╨▓╨╜╤Л╨╣ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В (PIP_CERT) ╨╕╨╗╨╕ PIP_TRUSTED_HOST
-echo   3. ╨Х╤Б╨╗╨╕ ╤Г ╨▓╨░╤Б ╤Г╨╢╨╡ ╨╡╤Б╤В╤М pip.ini тАФ ╨┐╤А╨╛╨┐╨╕╤И╨╕╤В╨╡ PIP_CONFIG_FILE
+echo Если ошибка связана с сетью или SSL - проверьте прокси:
+echo   1. Скопируйте proxy.env.example в proxy.env и укажите адрес прокси
+echo   2. При ошибке SSLError/CERTIFICATE_VERIFY_FAILED укажите в proxy.env
+echo      корпоративный сертификат (PIP_CERT) или PIP_TRUSTED_HOST
+echo   3. Если у вас уже есть pip.ini - пропишите PIP_CONFIG_FILE
 echo.
 pause
 exit /b 1
 
 :pip_ok
 
-echo [2/4] ╨б╨▒╨╛╤А╨║╨░ API ╤Б╨╡╤А╨▓╨╕╤Б╨░...
+echo [2/4] Сборка API сервиса...
 pyinstaller build_api.spec --clean --noconfirm
-if not exist "dist\API-╤Б╨╡╤А╨▓╨╕╤Б.exe" (
-    echo ERROR: ╨б╨▒╨╛╤А╨║╨░ API ╨╜╨╡ ╤Г╨┤╨░╨╗╨░╤Б╤М!
-    pause
-    exit /b 1
-)
-echo OK: dist/API-╤Б╨╡╤А╨▓╨╕╤Б.exe
+REM Проверяем код возврата PyInstaller и наличие файла по ASCII-маске:
+REM имя exe содержит кириллицу, и сравнение с ней зависит от кодовой страницы.
+if errorlevel 1 goto :api_failed
+dir /b "dist\API-*.exe" >nul 2>&1 || goto :api_failed
+echo OK: dist/API-сервис.exe
+goto :api_ok
 
-echo [3/4] ╨б╨▒╨╛╤А╨║╨░ GUI ╨┐╤А╨╕╨╗╨╛╨╢╨╡╨╜╨╕╤П...
+:api_failed
+echo ERROR: Сборка API не удалась! Смотрите вывод PyInstaller выше.
+pause
+exit /b 1
+
+:api_ok
+
+echo [3/4] Сборка GUI приложения...
 pyinstaller build.spec --clean --noconfirm
-if not exist "dist\╨Т╨б╨Ъ ╨Ф╨Ь╨б-╨░╤Б╤Б╨╕╤Б╤В╨╡╨╜╤В.exe" (
-    echo ERROR: ╨б╨▒╨╛╤А╨║╨░ GUI ╨╜╨╡ ╤Г╨┤╨░╨╗╨░╤Б╤М!
+if errorlevel 1 (
+    echo ERROR: Сборка GUI не удалась!
     pause
     exit /b 1
 )
-echo OK: dist/╨Т╨б╨Ъ ╨Ф╨Ь╨б-╨░╤Б╤Б╨╕╤Б╤В╨╡╨╜╤В.exe
+echo OK: dist/ВСК ДМС-ассистент.exe
 
-echo [4/4] ╨Ъ╨╛╨┐╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨║╨╛╨╜╤Д╨╕╨│╨╛╨▓...
-REM ╨Ъ╨╛╨┐╨╕╤А╤Г╨╡╨╝ .env.dist (╨┤╨╗╤П EXE, ╤Б ╨╛╤В╨╜╨╛╤Б╨╕╤В╨╡╨╗╤М╨╜╤Л╨╝╨╕ ╨┐╤Г╤В╤П╨╝╨╕) ╨▓╨╝╨╡╤Б╤В╨╛ .env
+echo [4/4] Копирование конфигов...
+REM Копируем .env.dist (для EXE, с относительными путями) вместо .env
 if exist ".env.dist" (
     copy .env.dist dist\.env >nul 2>&1
 ) else (
     copy .env dist\.env >nul 2>&1
 )
-echo OK: dist/.env (╨┤╨╗╤П EXE ╤Б ╨╛╤В╨╜╨╛╤Б╨╕╤В╨╡╨╗╤М╨╜╤Л╨╝╨╕ ╨┐╤Г╤В╤П╨╝╨╕)
+echo OK: dist/.env (для EXE с относительными путями)
 
-REM ╨г╨▒╨╡╨╢╨┤╨░╨╡╨╝╤Б╤П ╤З╤В╨╛ app/config.json ╤Б╨║╨╛╨┐╨╕╤А╨╛╨▓╨░╨╜
+REM Убеждаемся что app/config.json скопирован
 if not exist "dist/app/config.json" (
     mkdir dist\app >nul 2>&1
     copy app\config.json dist\app\config.json >nul 2>&1
@@ -81,19 +96,19 @@ echo OK: dist/app/config.json
 
 echo.
 echo ========================================
-echo  тЬУ ╨б╨▒╨╛╤А╨║╨░ ╨╖╨░╨▓╨╡╤А╤И╨╡╨╜╨░ ╤Г╤Б╨┐╨╡╤И╨╜╨╛!
+echo  OK Сборка завершена успешно!
 echo ========================================
 echo.
-echo ╨б╤В╤А╤Г╨║╤В╤Г╤А╨░ dist/:
-echo тФЬтФАтФА API-╤Б╨╡╤А╨▓╨╕╤Б.exe
-echo тФЬтФАтФА .env                 (╨┤╨╗╤П API)
-echo тФЬтФАтФА ╨Т╨б╨Ъ ╨Ф╨Ь╨б-╨░╤Б╤Б╨╕╤Б╤В╨╡╨╜╤В.exe
-echo тФЬтФАтФА normative_base/      (╨┤╨╗╤П API)
-echo тФЬтФАтФА examples/            (╨┤╨╗╤П API)
-echo тФФтФАтФА app/
-echo     тФФтФАтФА config.json      (╨┤╨╗╤П GUI)
+echo Структура dist/:
+echo ├── API-сервис.exe
+echo ├── .env                 (для API)
+echo ├── ВСК ДМС-ассистент.exe
+echo ├── normative_base/      (для API)
+echo ├── examples/            (для API)
+echo └── app/
+echo     └── config.json      (для GUI)
 echo.
-echo ╨Ф╨╗╤П ╨╖╨░╨┐╤Г╤Б╨║╨░:
+echo Для запуска:
 echo   run-all.bat
 echo.
 pause
