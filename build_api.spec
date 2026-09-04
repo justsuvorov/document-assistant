@@ -19,7 +19,7 @@ a = Analysis(
         'pydantic_settings',
         'openpyxl',
         'xlrd',
-        'python-docx',
+        'docx',
         'pdfplumber',
         'httpx',
         'loguru',

@@ -14,3 +14,9 @@ docs/
 uploads/
 normative_base/
 examples/
+dist/
+build/
+data/
+.idea/
+.claude/
+*.spec
