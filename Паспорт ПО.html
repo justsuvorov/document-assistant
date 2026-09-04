@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Паспорт ПО: требования к запуску и составу дистрибутива ассистента сверки документов.">
+<title>Паспорт ПО — Ассистент сверки документов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #f4f7fa;
+    --surface: #ffffff;
+    --surface-2: #eef3f7;
+    --ink: #0b2233;
+    --ink-muted: #51697a;
+    --border: #d7e2ea;
+    --accent: #0d4f6b;
+    --accent-soft: #e4eef3;
+    --success: #1a7a4a;
+    --success-bg: #e8f5ee;
+    --success-border: #bfe2cc;
+    --danger: #a83232;
+    --danger-bg: #fbeaea;
+    --danger-border: #f0c6c6;
+    --warn: #9c6414;
+    --warn-bg: #fbf1e2;
+    --warn-border: #ecd9b3;
+    --shadow: 0 1px 2px rgba(11,34,51,.04), 0 8px 24px rgba(11,34,51,.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #071b28;
+      --surface: #0d2e45;
+      --surface-2: #123a56;
+      --ink: #eef5f9;
+      --ink-muted: #93b3c4;
+      --border: #1c4a68;
+      --accent: #7fcaeb;
+      --accent-soft: #123a56;
+      --success: #4cc98d;
+      --success-bg: #123326;
+      --success-border: #1f5a3d;
+      --danger: #ea7970;
+      --danger-bg: #3a1616;
+      --danger-border: #6b2a26;
+      --warn: #e6b262;
+      --warn-bg: #3a2a10;
+      --warn-border: #6b4c1e;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #071b28;
+    --surface: #0d2e45;
+    --surface-2: #123a56;
+    --ink: #eef5f9;
+    --ink-muted: #93b3c4;
+    --border: #1c4a68;
+    --accent: #7fcaeb;
+    --accent-soft: #123a56;
+    --success: #4cc98d;
+    --success-bg: #123326;
+    --success-border: #1f5a3d;
+    --danger: #ea7970;
+    --danger-bg: #3a1616;
+    --danger-border: #6b2a26;
+    --warn: #e6b262;
+    --warn-bg: #3a2a10;
+    --warn-border: #6b4c1e;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Golos Text", "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 840px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .doc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    padding-bottom: 24px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 8px;
+  }
+  .doc-head h1 { font-size: 24px; font-weight: 800; margin: 0 0 4px; letter-spacing: -.01em; }
+  .doc-head .subtitle { color: var(--ink-muted); font-size: 14px; margin: 0; }
+  .doc-meta {
+    text-align: right;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+  .doc-meta div { margin-bottom: 2px; }
+  .doc-meta .label { text-transform: uppercase; letter-spacing: .04em; font-size: 10px; opacity: .8; }
+
+  h2 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 14px;
+    padding-top: 40px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-no {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  section:first-of-type h2 { padding-top: 32px; }
+
+  p { margin: 0 0 12px; }
+  p:last-child { margin-bottom: 0; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 20px 22px;
+  }
+  .card + .card { margin-top: 12px; }
+
+  table.spec {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  table.spec th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 600;
+    padding: 0 10px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.spec td {
+    padding: 11px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.spec tr:last-child td { border-bottom: none; }
+  table.spec td.param { font-weight: 600; white-space: nowrap; }
+  table.spec td.val { color: var(--ink-muted); }
+  table.spec code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+  .comp-card { display: flex; flex-direction: column; gap: 10px; }
+  .comp-card .comp-name { font-weight: 700; font-size: 15px; }
+  .comp-card .comp-tag {
+    display: inline-block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+  .comp-card dl { margin: 0; font-size: 13.5px; }
+  .comp-card dt { color: var(--ink-muted); display: inline; }
+  .comp-card dd { display: inline; margin: 0; }
+  .comp-card dt::after { content: ": "; }
+  .comp-card .row { margin-bottom: 4px; }
+  .comp-card .row:last-child { margin-bottom: 0; }
+
+  .badge {
+    display: inline-block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.required { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger-border); }
+  .badge.recommended { color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-border); }
+  .badge.optional { color: var(--ink-muted); background: var(--surface-2); border: 1px solid var(--border); }
+
+  .callout {
+    border-radius: 12px;
+    border: 1px solid;
+    padding: 15px 18px;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 12px;
+    font-size: 14px;
+  }
+  .callout p { margin: 0 0 5px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .icon { font-size: 15px; line-height: 1.5; }
+  .callout.note { background: var(--accent-soft); border-color: var(--border); color: var(--ink); }
+  .callout.note .icon { color: var(--accent); }
+  .callout.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--ink); }
+  .callout.warn .icon { color: var(--warn); }
+
+  code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+
+  .steps { display: flex; flex-direction: column; }
+  .step {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .step:last-child { border-bottom: none; }
+  .step-num {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  ul.plain { margin: 0; padding-left: 20px; font-size: 14px; }
+  ul.plain li { margin-bottom: 6px; }
+  ul.plain li:last-child { margin-bottom: 0; }
+
+  .formats { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fmt {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 5px 10px;
+    color: var(--ink);
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-muted);
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  ::selection { background: var(--accent-soft); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="doc-head">
+    <div>
+      <h1>Паспорт программного обеспечения</h1>
+      <p class="subtitle">Ассистент сверки документов — требования к запуску и составу дистрибутива</p>
+    </div>
+    <div class="doc-meta">
+      <div><span class="label">Ред.</span> 1.1</div>
+      <div><span class="label">от</span> 04.09.2026</div>
+      <div><span class="label">Тип</span> Desktop, Windows x64</div>
+    </div>
+  </div>
+
+  <section>
+    <h2><span class="sec-no">1</span>Состав дистрибутива</h2>
+    <p style="color:var(--ink-muted); margin-bottom:16px">Две независимые программы на одной машине, обменивающиеся данными по HTTP через <code>localhost</code>.</p>
+
+    <div class="two-col">
+      <div class="card comp-card">
+        <span class="comp-tag">Бэкенд</span>
+        <div class="comp-name">API-сервис.exe</div>
+        <dl>
+          <div class="row"><dt>Технология</dt><dd>Python, FastAPI, Uvicorn</dd></div>
+          <div class="row"><dt>Интерфейс</dt><dd>консольное окно с логом, без GUI</dd></div>
+          <div class="row"><dt>Порт</dt><dd><code>127.0.0.1:8001</code></dd></div>
+          <div class="row"><dt>Размер</dt><dd>≈ 233 МБ</dd></div>
+          <div class="row"><dt>Эндпоинты</dt><dd><code>/api/update</code> (ДМС), <code>/api/reconcile</code> (грузы), <code>/api/estimate</code>, <code>/api/rebuild</code></dd></div>
+          <div class="row"><dt>Запуск</dt><dd>первым, остаётся работать в фоне</dd></div>
+        </dl>
+      </div>
+      <div class="card comp-card">
+        <span class="comp-tag">Интерфейс</span>
+        <div class="comp-name">ВСК ДМС-ассистент.exe</div>
+        <dl>
+          <div class="row"><dt>Технология</dt><dd>Python, PySide6 (Qt6), edifice</dd></div>
+          <div class="row"><dt>Интерфейс</dt><dd>оконное GUI, две вкладки — «ДМС» и «Сверка грузов»</dd></div>
+          <div class="row"><dt>Обращается к</dt><dd>API-сервису по <code>http://localhost:8001</code></dd></div>
+          <div class="row"><dt>Размер</dt><dd>≈ 53 МБ (одним файлом) либо ≈ 240 МБ (папка со всеми библиотеками рядом)</dd></div>
+          <div class="row"><dt>Запуск</dt><dd>вторым, после готовности API-сервиса</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="callout note" style="margin-top:12px">
+      <div class="icon">&#8505;</div>
+      <div><p>GUI собирается в одном из двух режимов: единый .exe (проще переносить) или папка с exe и библиотеками рядом (устойчивее к антивирусам/политикам, блокирующим самораспаковку во временную папку). В обоих случаях функциональность одинакова — раздавать нужно то, что фактически собрано: один файл или папку целиком.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">2</span>Требования к операционной системе</h2>
+    <div class="card">
+      <table class="spec">
+        <tr><td class="param">ОС</td><td class="val">Windows 10 (версия 1809 и новее) или Windows 11, 64-разрядная</td></tr>
+        <tr><td class="param">Причина требования</td><td class="val">GUI построен на Qt6 — эта версия Qt не поддерживает Windows 7/8.1 и ранние сборки Windows 10; на них загрузчик не найдёт нужные системные API</td></tr>
+        <tr><td class="param">Права пользователя</td><td class="val">обычные, без администратора — оба .exe не требуют установки, запускаются из любой папки</td></tr>
+        <tr><td class="param">Сторонние рантаймы</td><td class="val">не требуются — Visual C++ Runtime уже упакован внутрь дистрибутива обеих программ</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">3</span>Требования к аппаратному обеспечению</h2>
+    <p style="color:var(--ink-muted); margin-bottom:16px">Распознавание и сопоставление текста выполняет удалённая LLM — локально нагрузка ограничена разбором Excel/Word/PDF и GUI, поэтому требования умеренные. Ориентировочные значения, не результат нагрузочного теста.</p>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>Параметр</th><th>Минимум</th><th>Рекомендуется</th></tr></thead>
+        <tbody>
+          <tr><td class="param">Процессор</td><td class="val">2 ядра, x64</td><td class="val">4 ядра</td></tr>
+          <tr><td class="param">Оперативная память</td><td class="val">4 ГБ</td><td class="val">8 ГБ</td></tr>
+          <tr><td class="param">Свободное место на диске</td><td class="val">1 ГБ</td><td class="val">2 ГБ (с запасом под кэш матрицы правил и результаты сверок)</td></tr>
+          <tr><td class="param">Экран</td><td class="val">1280×720</td><td class="val">1920×1080</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">4</span>Требования к сети</h2>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>Направление</th><th>Куда</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="param">GUI → API-сервис</td>
+            <td class="val"><code>127.0.0.1:8001</code></td>
+            <td><span class="badge required">обязательно</span></td>
+          </tr>
+          <tr>
+            <td class="param">API-сервис → модель ИИ</td>
+            <td class="val">интернет/VPN до адреса модели (<code>*.ai-api.vsk.ru</code>)</td>
+            <td><span class="badge required">обязательно</span></td>
+          </tr>
+          <tr>
+            <td class="param">API-сервис → общие особые условия</td>
+            <td class="val">корпоративная сеть, сетевой путь вида <code>\\fstorfs\...</code></td>
+            <td><span class="badge optional">только «Сверка грузов»</span></td>
+          </tr>
+          <tr>
+            <td class="param">API-сервис → папка полиса клиента</td>
+            <td class="val">сетевой каталог с ген. полисом, ДС и декларациями; требуется доступ на чтение и <strong>запись</strong> — результат сверки сохраняется рядом с декларацией</td>
+            <td><span class="badge optional">только «Сверка грузов»</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn" style="margin-top:12px">
+      <div class="icon">&#9888;</div>
+      <div><p>Порт <code>8001</code> должен быть свободен на машине — если его уже занимает другой процесс, API-сервис не запустится. Порт можно сменить в <code>app/config.json</code> (поле <code>api_base_url</code>) при условии одновременной правки на стороне запуска сервиса.</p></div>
+    </div>
+    <div class="callout warn" style="margin-top:12px">
+      <div class="icon">&#9888;</div>
+      <div>
+        <p><strong>При работе через корпоративный прокси</strong> адреса <code>127.0.0.1</code> и <code>localhost</code> обязаны быть в списке исключений <code>NO_PROXY</code>. Иначе обращение GUI к локальному API уходит на прокси и не возвращается — внешне это выглядит как «GUI не видит сервис», а не как проблема сети.</p>
+        <p>Настройки прокси задаются в файле <code>proxy.env</code> рядом с дистрибутивом; запуск через <code>run-all.bat</code> подставляет их автоматически и принудительно добавляет localhost в исключения.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">5</span>Обязательные файлы рядом с API-сервис.exe</h2>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>Файл/папка</th><th></th><th>Назначение</th></tr></thead>
+        <tbody>
+          <tr><td class="param">.env</td><td><span class="badge required">обязательно</span></td><td class="val">настройки — провайдер модели, шаблоны промптов, пути к базам</td></tr>
+          <tr><td class="param">normative_base/</td><td><span class="badge required">обязательно</span></td><td class="val">нормативная база для режима ДМС (даже если используется только «Сверка грузов» — без неё сервис не стартует)</td></tr>
+          <tr><td class="param">examples/</td><td><span class="badge optional">необязательно</span></td><td class="val">эталонные примеры для промпта ДМС, повышают качество ответа</td></tr>
+          <tr><td class="param">proxy.env</td><td><span class="badge optional">необязательно</span></td><td class="val">настройки корпоративного прокси; при отсутствии соединение идёт напрямую</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout note" style="margin-top:12px">
+      <div class="icon">&#8505;</div>
+      <div><p>Ключевой параметр <code>.env</code> — <code>AI_PROVIDER</code>. Значение по умолчанию в коде (<code>ollama</code>, локальная модель) на рабочей машине не сработает — должно быть явно указано <code>qwen</code> или <code>vsk</code>.</p></div>
+    </div>
+
+    <p style="margin-top:22px; margin-bottom:12px; font-weight:600; font-size:15px">Параметры <code>.env</code> для режима «Сверка грузов»</p>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>Параметр</th><th></th><th>Назначение</th></tr></thead>
+        <tbody>
+          <tr><td class="param">RECONCILIATION_AI_ROLE<br>RECONCILIATION_PROMPT_TEMPLATE</td><td><span class="badge required">обязательно</span></td><td class="val">роль и шаблон промпта сверки декларации</td></tr>
+          <tr><td class="param">MATRIX_AI_ROLE<br>MATRIX_PROMPT_TEMPLATE</td><td><span class="badge required">обязательно</span></td><td class="val">роль и шаблон промпта извлечения пунктов из ген. полиса и ДС</td></tr>
+          <tr><td class="param">RECONCILIATION_RULES_BASE</td><td><span class="badge recommended">рекомендуется</span></td><td class="val">база знаний по грузам — инструкция, какие поля декларации с какими пунктами полиса сопоставлять</td></tr>
+          <tr><td class="param">SPECIAL_CONDITIONS_GLOBAL_PATH</td><td><span class="badge optional">необязательно</span></td><td class="val">общий файл особых условий; ищется по номеру полиса и страхователю</td></tr>
+          <tr><td class="param">RECONCILIATION_TEMPLATE_HORIZONTAL<br>RECONCILIATION_TEMPLATE_VERTICAL</td><td><span class="badge optional">необязательно</span></td><td class="val">формы ответа. Пусто = используются копии, встроенные в дистрибутив; задавать только для замены на свои</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">6</span>Поддерживаемые форматы файлов</h2>
+    <p style="color:var(--ink-muted); margin-bottom:14px">Для клиентских документов, деклараций, генерального полиса и ДС.</p>
+    <div class="formats">
+      <span class="fmt">.xlsx</span>
+      <span class="fmt">.xlsm</span>
+      <span class="fmt">.xls</span>
+      <span class="fmt">.docx</span>
+      <span class="fmt">.doc</span>
+      <span class="fmt">.pdf</span>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">7</span>Порядок запуска</h2>
+    <div class="card steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>Запустить <code>API-сервис.exe</code>. Дождаться в консоли строки <code>Uvicorn running on http://127.0.0.1:8001</code>. Окно не закрывать.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>Запустить <code>ВСК ДМС-ассистент.exe</code> (или exe из папки, если сборка в режиме «папка рядом с DLL»).</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>Выбрать вкладку — «ДМС» или «Сверка грузов» — и работать по соответствующей инструкции пользователя.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">8</span>Известные ограничения и диагностика</h2>
+    <div class="card">
+      <ul class="plain">
+        <li><strong>«DLL load failed while importing QtCore»</strong> при запуске GUI — на части машин однофайловая сборка (самораспаковка во временную папку при каждом запуске) теряет часть библиотек из-за антивируса или политик безопасности. Решение — сборка в режиме «папка»: все библиотеки лежат рядом с exe постоянно, распаковка не требуется.</li>
+        <li>Общие особые условия («Сверка грузов») подключаются автоматически только при наличии доступа к корпоративной сети в момент запуска API-сервиса — при недоступности сети сверка всё равно проходит, но без этого блока условий.</li>
+        <li><strong>Время сверки пропорционально числу перевозок.</strong> Мультистрочная декларация обрабатывается по одной перевозке за вызов модели. Однострочная (вертикальная) обрабатывается целиком одним вызовом.</li>
+        <li><strong>Матрица правил по умолчанию пересобирается при каждом запуске</strong> (галочка в интерфейсе установлена). Это дороже по времени — требуется по одному вызову модели на генеральный полис и на каждое ДС, — но исключает работу по устаревшему кэшу. Снимать галочку допустимо, только когда полис и ДС заведомо не менялись.</li>
+        <li><strong>При сбое отдельного документа обработка продолжается.</strong> Недоступность модели или нечитаемый файл приводят к пропуску источника, а не к остановке всего запуска. В этом случае в логе появляется строка «Матрица правил построена без N источник(ов)» — отчёт при этом внешне выглядит нормальным, но сверка идёт по неполным правилам, и принимать его как готовый нельзя.</li>
+        <li>Распознавание вида декларации опирается на наличие колонки «№ п/п». Мультистрочная декларация без такой колонки будет обработана как одна перевозка. Фактически выбранный вид печатается в лог по каждому файлу.</li>
+        <li>Требования к аппаратному обеспечению и оценки времени приведены ориентировочно и не являются результатом нагрузочного тестирования.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="sec-no">9</span>Эксплуатационная документация и поддержка</h2>
+    <div class="card">
+      <table class="spec">
+        <tbody>
+          <tr><td class="param">Руководство оператора</td><td class="val"><code>docs/Руководство оператора — сверка грузовых деклараций.html</code> — структура сетевых папок, управление промптами через <code>.env</code>, поиск перевозчиков, разбор ошибок и таймаутов модели</td></tr>
+          <tr><td class="param">Описание бизнес-логики</td><td class="val"><code>BUSINESS.md</code></td></tr>
+          <tr><td class="param">Известные ограничения</td><td class="val"><code>CONSTRAINTS.md</code></td></tr>
+          <tr><td class="param">Поддержка</td><td class="val">Матьякубов Александр — <a href="mailto:matyakubov@vsk.ru" style="color:var(--accent)">matyakubov@vsk.ru</a>. К обращению приложить полный лог консоли <code>API-сервис.exe</code> и путь к папке полиса, на которой воспроизводится проблема.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ассистент сверки документов — паспорт ПО, ред. 1.1</span>
+    <span>Windows x64 · локальный GUI · облачная модель ИИ</span>
+  </footer>
+
+</div>
+</body>
+</html>
