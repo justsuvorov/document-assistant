@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ДМС-ассистент — Руководство пользователя</title>
+<style>
+  :root {
+    --bg: #002033;
+    --card: #0d2e45;
+    --card-alt: #103a58;
+    --muted: #8eafc0;
+    --white: #ffffff;
+    --blue: #1a6fa8;
+    --green: #1a7a4a;
+    --orange: #c47a1e;
+    --red: #b3402f;
+    --border: #1c445f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--white);
+    font-family: "Segoe UI", Arial, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  header .badge {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    background: var(--blue);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 18px;
+    flex-shrink: 0;
+  }
+  h1 { font-size: 26px; margin: 0; }
+  .subtitle { color: var(--muted); font-size: 14px; margin: 4px 0 32px; }
+
+  nav.toc {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 36px;
+    border: 1px solid var(--border);
+  }
+  nav.toc h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  nav.toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 24px; }
+  nav.toc li { margin-bottom: 6px; font-size: 14px; break-inside: avoid; }
+  nav.toc a { color: var(--white); text-decoration: none; }
+  nav.toc a:hover { color: var(--orange); text-decoration: underline; }
+
+  section { margin-bottom: 40px; }
+  h2 {
+    font-size: 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+    scroll-margin-top: 16px;
+  }
+  h3 { font-size: 16px; color: var(--white); margin: 20px 0 8px; scroll-margin-top: 16px; }
+  p { color: #d7e4ec; font-size: 14.5px; }
+  ul, ol { color: #d7e4ec; font-size: 14.5px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--white); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 14px 0;
+  }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 40px;
+    margin-bottom: 14px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 26px; height: 26px;
+    background: var(--blue);
+    border-radius: 50%;
+    color: var(--white);
+    font-size: 13px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  code, .kbd {
+    background: #06263a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+    color: #ffd699;
+  }
+  pre {
+    background: #06263a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-size: 13px;
+    color: #cfe3ee;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+
+  .faq-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+  }
+  .faq-item.err { border-left-color: var(--red); }
+  .faq-item .q { font-weight: 600; color: var(--white); margin-bottom: 6px; font-size: 14.5px; }
+  .faq-item .q .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-right: 8px;
+    background: var(--red);
+    color: white;
+    vertical-align: middle;
+  }
+  .faq-item .a { color: #d7e4ec; font-size: 14px; }
+  .faq-item .a p:first-child { margin-top: 0; }
+  .faq-item .a p:last-child { margin-bottom: 0; }
+
+  .note {
+    background: var(--card-alt);
+    border-left: 3px solid var(--orange);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 13.5px;
+    color: #f0dcc0;
+    margin: 12px 0;
+  }
+  .note strong { color: var(--orange); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  @media (max-width: 560px) {
+    nav.toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="badge">ДМС</div>
+    <div>
+      <h1>ДМС-ассистент</h1>
+    </div>
+  </header>
+  <p class="subtitle">Руководство пользователя — установка, запуск, работа с приложением и решение типичных проблем</p>
+
+  <nav class="toc">
+    <h2>Содержание</h2>
+    <ol>
+      <li><a href="#overview">Что делает приложение</a></li>
+      <li><a href="#components">Из чего состоит приложение</a></li>
+      <li><a href="#launch">Запуск</a></li>
+      <li><a href="#usage">Работа с приложением</a></li>
+      <li><a href="#config">Настройка</a></li>
+      <li><a href="#logs">Логи и результаты</a></li>
+      <li><a href="#faq">Возможные ошибки и их решение</a></li>
+    </ol>
+  </nav>
+
+  <section id="overview">
+    <h2>1. Что делает приложение</h2>
+    <p>
+      ДМС-ассистент анализирует файл клиента (запрос на страхование) и сопоставляет его требования
+      с нормативной базой программ добровольного медицинского страхования. Приложение автоматически
+      подбирает наиболее подходящую программу и формирует таблицу-ответ: какие пункты запроса
+      покрываются, какие покрываются частично, а какие отсутствуют в программе.
+    </p>
+    <p>Поддерживаемые форматы файла клиента: <code>.xlsx</code>, <code>.xls</code>, <code>.docx</code>, <code>.pdf</code>.</p>
+  </section>
+
+  <section id="components">
+    <h2>2. Из чего состоит приложение</h2>
+    <p>Приложение — это два независимых EXE-файла, которые работают в связке:</p>
+    <table>
+      <tr><th>Файл</th><th>Роль</th></tr>
+      <tr>
+        <td><code>API-сервис.exe</code></td>
+        <td>Фоновый сервис обработки. Открывается в виде консольного окна с логами.
+        Слушает <code>http://localhost:8001</code>. Само по себе никакого окна с кнопками не показывает —
+        это "мотор" приложения.</td>
+      </tr>
+      <tr>
+        <td><code>ВСК ДМС-ассистент.exe</code></td>
+        <td>Графический интерфейс. Именно с ним работает пользователь: выбор файлов, кнопка
+        «Подготовить», просмотр статуса и открытие результата.</td>
+      </tr>
+    </table>
+    <div class="note"><strong>Важно:</strong> GUI-приложение — это просто окно, которое посылает запросы в API-сервис.
+    Если <code>API-сервис.exe</code> не запущен (или ещё не успел подняться), кнопки в GUI не будут работать —
+    см. раздел <a href="#faq">«Возможные ошибки»</a>.</div>
+  </section>
+
+  <section id="launch">
+    <h2>3. Запуск</h2>
+
+    <h3>Автоматический запуск (рекомендуется)</h3>
+    <ol class="steps">
+      <li>Откройте папку с приложением.</li>
+      <li>Дважды кликните <code>run-all.bat</code>.</li>
+      <li>Откроются два окна: консоль <code>API-сервис</code> и окно <code>ДМС-ассистент</code>. Не закрывайте
+      консольное окно API — приложение перестанет работать, если его закрыть.</li>
+    </ol>
+    <p><code>run-all.bat</code> сам копирует недостающие <code>.env</code> и <code>config.json</code> из
+    примеров, если их нет, и ждёт несколько секунд после старта API перед запуском GUI, чтобы сервис успел подняться.</p>
+
+    <h3>Ручной запуск</h3>
+    <ol class="steps">
+      <li>Запустите <code>API-сервис.exe</code> и дождитесь в консоли строк вида
+      <code>Listening at: http://0.0.0.0:8001</code>.</li>
+      <li>Затем запустите <code>ВСК ДМС-ассистент.exe</code>.</li>
+    </ol>
+  </section>
+
+  <section id="usage">
+    <h2>4. Работа с приложением</h2>
+    <ol class="steps">
+      <li><strong>Нормативная база</strong> (необязательно) — файл с программами страхования, если нужно
+      подставить свой вместо той, что зашита в поставку. Кнопка «Выбрать».</li>
+      <li><strong>Файл клиента</strong> (обязательно) — запрос клиента, который нужно обработать. Кнопка «Выбрать».</li>
+      <li><strong>«Оценить время работы»</strong> (необязательно) — показывает, сколько разделов найдено в
+      файле и примерное время обработки. Появляется ползунок «% документа» — можно ограничить объём
+      обрабатываемых данных, если нужно обработать только часть файла или ускорить прогон.</li>
+      <li><strong>«Подготовить»</strong> — запускает обработку. Кнопка становится недоступной, в карточке
+      «Статус» отображается прогресс, прошедшее и ожидаемое время.</li>
+      <li><strong>«Открыть результат»</strong> — появляется после успешного завершения, открывает готовый файл
+      с ответом в приложении по умолчанию (например, Excel).</li>
+    </ol>
+    <div class="note">
+      Полоса прогресса и «прошедшее время» — это локальная оценка на основе прошлой оценки времени,
+      а не точный прогресс от сервера. Реальная обработка может занять больше или меньше показанного времени.
+    </div>
+  </section>
+
+  <section id="config">
+    <h2>5. Настройка</h2>
+    <p>
+      Рядом с <code>ВСК ДМС-ассистент.exe</code> лежит папка <code>app/</code> с файлом <code>config.json</code>.
+      Там можно поменять адрес API без пересборки приложения:
+    </p>
+    <pre>{
+  "api_base_url": "http://localhost:8001"
+}</pre>
+    <p>Настройки самого сервиса обработки (нормативная база, ключи для AI-провайдера и т.п.) хранятся
+    в файле <code>.env</code> рядом с <code>API-сервис.exe</code> и применяются только при следующем запуске сервиса.</p>
+  </section>
+
+  <section id="logs">
+    <h2>6. Логи и результаты</h2>
+    <table>
+      <tr><th>Что</th><th>Где искать</th></tr>
+      <tr><td>Логи GUI</td><td><code>app.log</code> рядом с <code>ВСК ДМС-ассистент.exe</code></td></tr>
+      <tr><td>Логи API</td><td>прямо в консольном окне <code>API-сервис.exe</code></td></tr>
+      <tr><td>Исходный файл клиента</td><td>папка <code>uploads/</code> (копируется туда автоматически при обработке)</td></tr>
+      <tr><td>Результат (<code>*_ответ.xlsx/.docx</code>)</td><td>там же, в <code>uploads/</code>, рядом с исходным файлом</td></tr>
+      <tr><td>Отладочный ответ модели (<code>*_llm_debug.md</code>, <code>*_llm_output.json</code>)</td><td>там же, в <code>uploads/</code> — полезно приложить при обращении в поддержку</td></tr>
+    </table>
+  </section>
+
+  <section id="faq">
+    <h2>7. Возможные ошибки и их решение</h2>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>«Выберите файл клиента»</div>
+      <div class="a"><p>Нажата кнопка «Оценить время работы» или «Подготовить» без выбранного файла клиента.</p>
+      <p><strong>Решение:</strong> нажмите «Выбрать» в блоке «Файл клиента» и укажите файл.</p></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>«Файл "X" открыт в другой программе. Закройте его и попробуйте снова.»</div>
+      <div class="a"><p>Приложение не может скопировать выбранный файл в рабочую папку, потому что он
+      открыт в Excel/Word/другом просмотрщике (файл заблокирован операционной системой).</p>
+      <p><strong>Решение:</strong> закройте файл в другой программе и нажмите «Подготовить» ещё раз.</p></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>Сообщение «Ошибка: ...» появляется сразу после нажатия кнопки, без прогресса</div>
+      <div class="a"><p>Обычно означает, что GUI не смог достучаться до API-сервиса — сеть/подключение недоступно.</p>
+      <p><strong>Решение:</strong></p>
+      <ul>
+        <li>Убедитесь, что консольное окно <code>API-сервис.exe</code> открыто и не закрылось само.</li>
+        <li>Проверьте в консоли API, что там нет ошибки при старте (например, о неверном <code>.env</code>).</li>
+        <li>Если запускали вручную — подождите 5–10 секунд после старта API перед тем, как нажимать кнопки в GUI.</li>
+        <li>Проверьте <code>api_base_url</code> в <code>app/config.json</code> — порт должен совпадать с тем, что показывает консоль API (по умолчанию 8001).</li>
+      </ul></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>«Ошибка оценки: ...» / «Unsupported file format»</div>
+      <div class="a"><p>Формат выбранного файла не поддерживается, либо файл повреждён/не читается.</p>
+      <p><strong>Решение:</strong> используйте один из поддерживаемых форматов — <code>.xlsx</code>, <code>.xls</code>,
+      <code>.docx</code>, <code>.pdf</code>. Старый бинарный формат <code>.doc</code> (Word 97-2003) не читается —
+      пересохраните файл в <code>.docx</code>.</p></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>«Ошибка 500: ...» после длительной обработки</div>
+      <div class="a"><p>Ошибка на стороне сервиса обработки, обычно связана с обращением к AI-модели: неверный
+      или просроченный ключ API, модель недоступна из текущей сети, или сервис модели вернул ошибку.</p>
+      <p><strong>Решение:</strong></p>
+      <ul>
+        <li>Проверьте текст ошибки в консоли <code>API-сервис.exe</code> — там будет более подробное сообщение.</li>
+        <li>Если организация работает через прокси, убедитесь, что скопирован и заполнен
+        <code>proxy.env</code> (из <code>proxy.env.example</code>) — без него обращение к внешнему API модели
+        может не проходить через корпоративную сеть.</li>
+        <li>Проверьте актуальность ключа доступа к модели в <code>.env</code> рядом с <code>API-сервис.exe</code>.</li>
+      </ul></div>
+    </div>
+
+    <div class="faq-item">
+      <div class="q"><span class="tag" style="background:var(--orange)">Особенность</span>Обработка идёт очень долго / кажется, что «зависла»</div>
+      <div class="a"><p>Большие файлы с большим числом разделов обрабатываются по частям — время
+      обработки растёт пропорционально объёму документа. Показанный процент и «прошедшее время» —
+      это оценка на клиенте, а не подтверждение от сервера, поэтому расхождение с реальностью — норма.</p>
+      <p><strong>Что делать:</strong> используйте кнопку «Оценить время работы» перед запуском, чтобы увидеть
+      ожидаемое время, и при необходимости уменьшите ползунок «% документа», чтобы обработать файл частично
+      быстрее (например, для проверки на малом фрагменте).</p></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>GUI-приложение не запускается / сразу закрывается</div>
+      <div class="a"><p>Частые причины: файл заблокирован антивирусом как незнакомый исполняемый файл
+      (типично для приложений, собранных PyInstaller), либо Windows SmartScreen блокирует запуск
+      неподписанного EXE.</p>
+      <p><strong>Решение:</strong></p>
+      <ul>
+        <li>Проверьте карантин антивируса — добавьте <code>API-сервис.exe</code> и <code>ВСК ДМС-ассистент.exe</code> в исключения.</li>
+        <li>Если Windows показывает предупреждение SmartScreen — «Дополнительно» → «Выполнить в любом случае».</li>
+        <li>Проверьте <code>app.log</code> рядом с GUI-EXE — если он не создался, файл не запустился совсем; если
+        создался, но приложение закрылось, там будет причина.</li>
+      </ul></div>
+    </div>
+
+    <div class="faq-item err">
+      <div class="q"><span class="tag">Ошибка</span>API-сервис не стартует / порт занят</div>
+      <div class="a"><p>Порт <code>8001</code> уже занят другим процессом — например, уже запущенным
+      экземпляром <code>API-сервис.exe</code>, оставшимся от предыдущего запуска.</p>
+      <p><strong>Решение:</strong> откройте Диспетчер задач, завершите все процессы <code>API-сервис.exe</code>,
+      запустите заново.</p></div>
+    </div>
+
+    <div class="faq-item">
+      <div class="q"><span class="tag" style="background:var(--orange)">Особенность</span>Кнопка «Открыть результат» ничего не делает или открывает не то приложение</div>
+      <div class="a"><p>Кнопка открывает файл результата в приложении по умолчанию для его типа
+      (обычно Excel для <code>.xlsx</code>). Если для этого формата не назначено приложение по умолчанию —
+      ничего не произойдёт или откроется диалог выбора программы Windows.</p>
+      <p><strong>Решение:</strong> назначьте приложение по умолчанию для <code>.xlsx</code>/<code>.docx</code>
+      в настройках Windows, либо откройте файл вручную из папки <code>uploads/</code>.</p></div>
+    </div>
+
+    <div class="faq-item">
+      <div class="q"><span class="tag" style="background:var(--muted); color: var(--bg)">Инфо</span>Куда обращаться, если проблема не решилась</div>
+      <div class="a"><p>Соберите вместе: скриншот ошибки в GUI, текст из консоли <code>API-сервис.exe</code>,
+      файл <code>app.log</code>, и (если обработка дошла до сервиса) файлы <code>*_llm_debug.md</code> /
+      <code>*_llm_output.json</code> из папки <code>uploads/</code> для соответствующего запроса — это
+      значительно ускорит диагностику.</p></div>
+    </div>
+
+  </section>
+
+  <footer>
+    ДМС-ассистент · Руководство пользователя
+  </footer>
+
+</div>
+</body>
+</html>
