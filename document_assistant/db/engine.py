@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from document_assistant.core.settings import settings
@@ -29,9 +30,23 @@ async def init_db() -> None:
 
     Это последняя ручная миграция: следующее изменение схемы стоит делать
     уже через Alembic.
+
+    ``init_db`` вызывается независимо в каждом gunicorn-воркере ``api`` и в
+    ``worker`` — при первом запуске на пустой БД несколько процессов могут
+    одновременно пройти проверку «таблицы нет» и попытаться создать её же.
+    Тот, кто проиграл гонку, получает "already exists" — это ожидаемо, не
+    ошибка. Отдельная транзакция ниже гарантирует, что после отловленной
+    гонки соединение не останется в состоянии прерванной транзакции
+    (актуально для Postgres).
     """
+    try:
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except (OperationalError, ProgrammingError) as e:
+        if "already exists" not in str(e).lower():
+            raise
+
     async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
         await _ensure_queue_columns(conn)
 
 

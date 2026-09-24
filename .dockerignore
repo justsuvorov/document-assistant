@@ -14,3 +14,12 @@ docs/
 uploads/
 normative_base/
 examples/
+dist/
+build/
+data/
+document_assistant.db
+.idea/
+.claude/
+*.spec
+client.xlsx
+Запрос.xlsx
