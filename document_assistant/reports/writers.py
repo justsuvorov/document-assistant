@@ -159,11 +159,35 @@ class ExcelReportWriter(ReportWriter):
             flush=True,
         )
 
+        # Всегда добавляем полный ответ отдельным листом, независимо от того,
+        # насколько удачно он лёг в шаблон клиента: сопоставление строк по
+        # тексту эвристическое и на плохих/испорченных шаблонах может
+        # промахнуться или проаннотировать не всё — на этом листе ответ
+        # всегда полный и корректный.
+        self._write_raw_answer_sheet(wb, report.rows)
+
         if report.summary:
             self._write_summary_sheet(wb, report.summary)
 
         wb.save(output_path)
         return output_path
+
+    def _write_raw_answer_sheet(self, wb: Workbook, rows: list[ReportRow]) -> None:
+        title = self._unique_title(wb, "Результат")
+        ws = wb.create_sheet(title=title, index=0)
+        self._write_header_row(ws)
+        self._write_data_rows(ws, rows)
+        self._apply_column_widths(ws)
+        wb.active = wb.sheetnames.index(title)
+
+    @staticmethod
+    def _unique_title(wb: Workbook, base: str) -> str:
+        if base not in wb.sheetnames:
+            return base
+        i = 2
+        while f"{base} ({i})" in wb.sheetnames:
+            i += 1
+        return f"{base} ({i})"
 
     @staticmethod
     def _norm(text: str) -> str:

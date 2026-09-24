@@ -1,15 +1,9 @@
-"""Точка входа веб-приложения.
-
-Длинная LLM-обработка ушла в отдельный воркер
-(``python -m document_assistant.worker``), здесь остаются только быстрые
-операции: приём файлов, статусы, страницы, отдача результатов.
-"""
-
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
+import uvicorn
 
 from document_assistant.auth.dependencies import RedirectToLogin
 from document_assistant.auth.keycloak import register_oauth_client
@@ -67,6 +61,4 @@ async def healthz():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
