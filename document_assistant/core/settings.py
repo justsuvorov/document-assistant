@@ -1,6 +1,12 @@
+import logging
+from pathlib import Path
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     """Application settings. Values are read from .env or environment variables."""
@@ -42,6 +48,10 @@ class Settings(BaseSettings):
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
+
+    # --- Логирование ---
+    # DEBUG/INFO/WARNING/ERROR. Поднимается через ConfigMap без пересборки образа.
+    log_level: str = Field("INFO", alias="LOG_LEVEL")
 
     # --- Хранилище файлов (локальный диск сервера) ---
     # Каталог, куда складываются входные файлы и результаты. Внутри —
@@ -104,3 +114,30 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def warn_if_state_not_shared() -> None:
+    """Предупредить, если api и worker гарантированно не увидят общее состояние.
+
+    api и worker — разные процессы (в проде — разные контейнеры), и связывает
+    их только БД (очередь задач) и каталог хранилища (файлы). Дефолты этих
+    двух настроек — относительные пути, и если переменные окружения не доехали
+    (не применился ConfigMap, забыт -e при docker run), каждый процесс молча
+    создаст СВОЮ базу и СВОЙ каталог: api запишет сессию в queued, worker будет
+    вечно видеть пустую очередь, и ни одной ошибки в логах при этом не будет.
+    """
+    url = settings.database_url
+    if url.startswith("sqlite") and ":///./" in url:
+        logger.warning(
+            f"DATABASE_URL={url} — SQLite с относительным путём. "
+            "Если api и worker запущены как разные контейнеры/процессы с разным "
+            "рабочим каталогом, у каждого будет СВОЯ база: задачи не будут "
+            "подхватываться воркером. Для нескольких процессов нужен общий "
+            "Postgres (DATABASE_URL=postgresql+asyncpg://...).")
+
+    if not Path(settings.storage_dir).is_absolute():
+        logger.warning(
+            f"STORAGE_DIR={settings.storage_dir} — относительный путь. "
+            "api и worker должны видеть ОДИН каталог (общий том); при "
+            "относительном пути каждый процесс получит свой собственный, "
+            "и воркер не найдёт загруженные файлы.")

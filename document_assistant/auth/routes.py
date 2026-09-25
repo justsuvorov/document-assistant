@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -12,6 +14,9 @@ from document_assistant.auth.dependencies import (
 )
 from document_assistant.auth.keycloak import keycloak_configured, logout_url, oidc_client
 from document_assistant.core.settings import settings
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,17 +29,17 @@ async def login(request: Request):
     где пользователь уже считается залогиненным dev-пользователем.
     """
     if settings.auth_disabled:
-        print("[INFO] /auth/login: AUTH_DISABLED=true — редирект на главную без Keycloak", flush=True)
+        logger.info("/auth/login: AUTH_DISABLED=true — редирект на главную без Keycloak")
         return RedirectResponse(url="/", status_code=302)
     if not keycloak_configured():
-        print("[ERROR] /auth/login: Keycloak не сконфигурирован (KEYCLOAK_* не заданы)", flush=True)
+        logger.error("/auth/login: Keycloak не сконфигурирован (KEYCLOAK_* не заданы)")
         raise HTTPException(
             status_code=503,
             detail="Keycloak не сконфигурирован. Задайте KEYCLOAK_* в .env "
                    "или включите AUTH_DISABLED=true для локальной разработки.",
         )
     redirect_uri = str(request.url_for("auth_callback"))
-    print(f"[INFO] /auth/login: редирект на Keycloak, callback={redirect_uri}", flush=True)
+    logger.info(f"/auth/login: редирект на Keycloak, callback={redirect_uri}")
     return await oidc_client().authorize_redirect(request, redirect_uri)
 
 
@@ -46,15 +51,15 @@ async def callback(request: Request):
     try:
         token = await oidc_client().authorize_access_token(request)
     except Exception as e:
-        print(f"[ERROR] /auth/callback: обмен code на токен не удался — {e}", flush=True)
+        logger.error(f"/auth/callback: обмен code на токен не удался — {e}")
         raise HTTPException(status_code=401, detail=f"Не удалось получить токен: {e}")
 
     access_token = token.get("access_token")
     if not access_token:
-        print("[ERROR] /auth/callback: Keycloak не вернул access_token", flush=True)
+        logger.error("/auth/callback: Keycloak не вернул access_token")
         raise HTTPException(status_code=401, detail="Keycloak не вернул access_token")
 
-    print("[INFO] /auth/callback: токен получен, cookie выставлена", flush=True)
+    logger.info("/auth/callback: токен получен, cookie выставлена")
     response = RedirectResponse(url="/", status_code=302)
     set_auth_cookies(response, access_token, token.get("id_token"))
     return response
@@ -69,6 +74,6 @@ async def logout(request: Request):
     else:
         home = str(request.url_for("index_page"))
         response = RedirectResponse(url=logout_url(home, id_token), status_code=302)
-    print("[INFO] /auth/logout: cookie очищена", flush=True)
+    logger.info("/auth/logout: cookie очищена")
     clear_auth_cookies(response)
     return response

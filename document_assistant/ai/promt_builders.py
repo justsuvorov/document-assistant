@@ -1,7 +1,11 @@
+import logging
 from pathlib import Path
 
 from document_assistant.ai.context_builder import ContextBuilder, NormativeIndex
 
+
+
+logger = logging.getLogger(__name__)
 
 class NormativeBaseLoader:
     """Load insurance normative documents from a file or a directory.
@@ -74,11 +78,9 @@ class PromptEngine:
         norm_text = NormativeBaseLoader().load(normative_base)
         self._norm_index = NormativeIndex(norm_text)
         self._context_builder = ContextBuilder(num_ctx, self._norm_index)
-        print(
-            f"[INFO] Нормативная база: {self._norm_index.section_count} разделов, "
-            f"контекст {num_ctx} токенов",
-            flush=True,
-        )
+        logger.info(
+            f"Нормативная база: {self._norm_index.section_count} разделов, "
+            f"контекст {num_ctx} токенов")
 
     def build(self, source_text: str, examples: list[str]) -> str:
         examples_block = ""

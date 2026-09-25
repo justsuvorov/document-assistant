@@ -11,8 +11,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
-import traceback
 from pathlib import Path
 
 from document_assistant.ai.preprocessor import ProcessingTask
@@ -21,6 +21,9 @@ from document_assistant.db.engine import async_session_factory
 from document_assistant.db.repository import SessionRepository
 from document_assistant.services.factory import build_dms_service
 from document_assistant.storage import session_prefix, storage, workspace
+
+
+logger = logging.getLogger(__name__)
 
 # Суффиксы артефактов, которые AIAssistantService кладёт рядом с исходником.
 _ARTIFACT_SUFFIXES = {
@@ -40,7 +43,7 @@ async def process_dms_session(ctx: dict, session_id: str) -> dict:
         repo = SessionRepository(db)
         session = await repo.system_get(session_id)
         if session is None:
-            print(f"[WARN] Сессия {session_id} не найдена — задача пропущена", flush=True)
+            logger.warning(f"Сессия {session_id} не найдена — задача пропущена")
             return {"session_id": session_id, "status": "missing"}
 
         user_id = session.user_id
@@ -63,13 +66,12 @@ async def process_dms_session(ctx: dict, session_id: str) -> dict:
                 session_prefix(user_id, session_id),
             )
         except Exception as e:
-            print(f"[ERROR] Сессия {session_id}: {e}", flush=True)
-            traceback.print_exc()
+            logger.exception(f"Сессия {session_id}: {e}")
             await repo.system_mark_error(session_id, f"{type(e).__name__}: {e}")
             return {"session_id": session_id, "status": "error"}
 
         await repo.system_mark_done(session_id, result["output_key"], result["artifact_keys"])
-        print(f"[INFO] Сессия {session_id} готова: {result['output_key']}", flush=True)
+        logger.info(f"Сессия {session_id} готова: {result['output_key']}")
         return {"session_id": session_id, "status": "done", "output_key": result["output_key"]}
 
 
@@ -89,7 +91,7 @@ def _run_dms_pipeline(
     """
     with workspace() as tmp:
         local_input = storage.download_to_tmp(client_key, dest_dir=tmp)
-        print(f"[INFO] Вход получен: {client_key} → {local_input.name}", flush=True)
+        logger.info(f"Вход получен: {client_key} → {local_input.name}")
 
         # Нормативка — в отдельную подпапку: доменный код складывает все
         # артефакты рядом с клиентским файлом, и посторонний файл в той же
@@ -99,7 +101,7 @@ def _run_dms_pipeline(
             local_normative = str(
                 storage.download_to_tmp(normative_key, dest_dir=tmp / "normative")
             )
-            print(f"[INFO] Нормативка сессии: {normative_key}", flush=True)
+            logger.info(f"Нормативка сессии: {normative_key}")
 
         task = ProcessingTask(
             # ProcessingTask ожидает int; идентичность сессии несёт session_id,

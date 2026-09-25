@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import tempfile
 from pathlib import Path
 
@@ -25,6 +26,9 @@ from document_assistant.db.repository import SessionRepository
 from document_assistant.services.assistant import AIAssistantService
 from document_assistant.storage import UnsafeKeyError, input_key, storage, workspace
 from document_assistant.web.deps import get_db
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -106,12 +110,10 @@ async def create_session(
         input_keys={},
         max_chunks=max_chunks,
     )
-    print(
-        f"[INFO] Сессия {session.id} создана пользователем {user.user_id} "
+    logger.info(
+        f"Сессия {session.id} создана пользователем {user.user_id} "
         f"(файл клиента: {client_file.filename!r}"
-        f"{', нормативка: ' + repr(normative_file.filename) if normative_file and normative_file.filename else ''})",
-        flush=True,
-    )
+        f"{', нормативка: ' + repr(normative_file.filename) if normative_file and normative_file.filename else ''})")
 
     keys: dict[str, str] = {}
     try:
@@ -129,7 +131,7 @@ async def create_session(
                 uploads.append((local_norm, keys["normative"]))
             await asyncio.to_thread(_upload_all, uploads)
     except Exception as e:
-        print(f"[ERROR] Сессия {session.id}: не удалось сохранить файлы в хранилище: {e}", flush=True)
+        logger.error(f"Сессия {session.id}: не удалось сохранить файлы в хранилище: {e}")
         await repo.system_mark_error(session.id, f"Не удалось сохранить файлы: {e}")
         raise HTTPException(status_code=507, detail=f"Ошибка записи в хранилище: {e}")
 
@@ -138,11 +140,9 @@ async def create_session(
     # начнёт обрабатывать полузагруженную сессию.
     session.input_keys = keys
     await db.commit()
-    print(
-        f"[INFO] Сессия {session.id}: файлы загружены в хранилище ({', '.join(keys.values())}), "
-        f"статус queued — ждёт воркера",
-        flush=True,
-    )
+    logger.info(
+        f"Сессия {session.id}: файлы загружены в хранилище ({', '.join(keys.values())}), "
+        f"статус queued — ждёт воркера")
 
     return {"session_id": session.id, "status": SessionStatus.QUEUED.value}
 
@@ -201,21 +201,21 @@ async def rebuild_session(
             detail="Для этой сессии нет кэша LLM — пересборка невозможна",
         )
 
-    print(f"[INFO] Сессия {session_id}: пользователь {user.user_id} запросил пересборку из кэша", flush=True)
+    logger.info(f"Сессия {session_id}: пользователь {user.user_id} запросил пересборку из кэша")
     prefix = f"{user.user_id}/{session_id}/output"
     try:
         new_key = await asyncio.to_thread(
             _rebuild_sync, client_key, json_key, prefix, session.user_name,
         )
     except FileNotFoundError as e:
-        print(f"[ERROR] Сессия {session_id}: пересборка не удалась — {e}", flush=True)
+        logger.error(f"Сессия {session_id}: пересборка не удалась — {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
-        print(f"[ERROR] Сессия {session_id}: пересборка не удалась — {e}", flush=True)
+        logger.error(f"Сессия {session_id}: пересборка не удалась — {e}")
         raise HTTPException(status_code=422, detail=str(e))
 
     await repo.system_mark_done(session_id, new_key, session.artifact_keys or {})
-    print(f"[INFO] Сессия {session_id}: пересборка завершена, результат {new_key}", flush=True)
+    logger.info(f"Сессия {session_id}: пересборка завершена, результат {new_key}")
     return {
         "session_id": session_id,
         "status": SessionStatus.DONE.value,
@@ -257,10 +257,10 @@ async def download_result(
     except (FileNotFoundError, UnsafeKeyError):
         # Запись в БД есть, а файла нет — чистим статус в сообщении, но не
         # раскрываем путь на диске.
-        print(f"[ERROR] Сессия {session_id}: файл результата не найден в хранилище ({key})", flush=True)
+        logger.error(f"Сессия {session_id}: файл результата не найден в хранилище ({key})")
         raise HTTPException(status_code=410, detail="Файл результата недоступен")
 
-    print(f"[INFO] Сессия {session_id}: пользователь {user.user_id} скачивает {path.name}", flush=True)
+    logger.info(f"Сессия {session_id}: пользователь {user.user_id} скачивает {path.name}")
     return FileResponse(path, filename=path.name)
 
 

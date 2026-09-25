@@ -32,6 +32,12 @@ echo "STORAGE_DIR=/data" >> k8s/generated/configmap.env
 sed -i '/^AUTH_DISABLED=/d' k8s/generated/configmap.env
 echo "AUTH_DISABLED=true" >> k8s/generated/configmap.env  # этап 1: Keycloak отключён
 
+# Значение из .env имеет приоритет; если его там нет — ставим явно, чтобы
+# DevOps видел ключ в ConfigMap и мог поднять детализацию без пересборки.
+if ! grep -q '^LOG_LEVEL=' k8s/generated/configmap.env; then
+  echo "LOG_LEVEL=INFO" >> k8s/generated/configmap.env
+fi
+
 if ! grep -q '^DATABASE_URL=' k8s/generated/secret.env 2>/dev/null; then
   echo "DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>:5432/<db>" >> k8s/generated/secret.env
 fi

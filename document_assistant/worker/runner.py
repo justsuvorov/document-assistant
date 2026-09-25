@@ -13,10 +13,11 @@ Redis убран, поэтому задачи забираются прямо и
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
-import traceback
 
-from document_assistant.core.settings import settings
+from document_assistant.core.logging_config import setup_logging
+from document_assistant.core.settings import settings, warn_if_state_not_shared
 from document_assistant.db.engine import (
     async_session_factory,
     dispose_engine,
@@ -26,6 +27,9 @@ from document_assistant.db.engine import (
 from document_assistant.db.repository import SessionRepository
 from document_assistant.storage import storage
 from document_assistant.worker.tasks import process_dms_session
+
+
+logger = logging.getLogger(__name__)
 
 # Реже, чем захват задач: подметать брошенные задачи каждый оборот незачем.
 _REAP_EVERY_SECONDS = 60
@@ -45,42 +49,36 @@ class Worker:
 
     def request_stop(self) -> None:
         if not self._stopping.is_set():
-            print("[INFO] Получен сигнал остановки, новые задачи не берём", flush=True)
+            logger.info("Получен сигнал остановки, новые задачи не берём")
             self._stopping.set()
 
     async def run(self) -> None:
-        print(
-            "[INFO] Конфигурация воркера: "
+        logger.info(
+            "Конфигурация воркера: "
             f"БД={masked_database_url()}, "
             f"хранилище={settings.storage_dir}, "
             f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
-            f"опрос очереди раз в {settings.worker_poll_interval} сек",
-            flush=True,
-        )
+            f"опрос очереди раз в {settings.worker_poll_interval} сек")
+        warn_if_state_not_shared()
+
         try:
             await init_db()
         except Exception as e:
             # Сырой traceback здесь бесполезен тому, кто смотрит kubectl logs:
             # причина почти всегда сетевая (хост/порт БД недоступен из кластера).
             # Выходим с ненулевым кодом — под перезапустится, сигнал не теряется.
-            print(
-                f"[ERROR] Не удалось подключиться к БД {masked_database_url()}: "
-                f"{type(e).__name__}: {e}",
-                flush=True,
-            )
-            print(
-                "[ERROR] Проверьте доступность хоста и порта БД из кластера "
-                "и правильность DATABASE_URL в secret.",
-                flush=True,
-            )
+            logger.error(
+                f"Не удалось подключиться к БД {masked_database_url()}: "
+                f"{type(e).__name__}: {e}")
+            logger.error(
+                "Проверьте доступность хоста и порта БД из кластера "
+                "и правильность DATABASE_URL в secret.")
             raise SystemExit(1)
 
         storage.ensure_root()
-        print(
-            f"[INFO] Воркер запущен: каталог {storage.root}, "
-            f"параллельно до {settings.worker_max_jobs} задач",
-            flush=True,
-        )
+        logger.info(
+            f"Воркер запущен: каталог {storage.root}, "
+            f"параллельно до {settings.worker_max_jobs} задач")
 
         since_reap = float("inf")  # подмести сразу на старте
         since_heartbeat = 0.0
@@ -100,11 +98,9 @@ class Worker:
             since_heartbeat += settings.worker_poll_interval
 
             if since_heartbeat >= _HEARTBEAT_EVERY_SECONDS:
-                print(
-                    f"[INFO] Воркер жив: очередь пуста, опросов за последние "
-                    f"{int(since_heartbeat)} сек — {polls}",
-                    flush=True,
-                )
+                logger.info(
+                    f"Воркер жив: очередь пуста, опросов за последние "
+                    f"{int(since_heartbeat)} сек — {polls}")
                 since_heartbeat = 0.0
                 polls = 0
 
@@ -126,22 +122,18 @@ class Worker:
             async with async_session_factory() as db:
                 session = await SessionRepository(db).system_claim_next()
         except Exception as e:
-            print(
-                f"[ERROR] Не удалось получить задачу из очереди "
-                f"(БД {masked_database_url()}): {type(e).__name__}: {e}",
-                flush=True,
-            )
+            logger.error(
+                f"Не удалось получить задачу из очереди "
+                f"(БД {masked_database_url()}): {type(e).__name__}: {e}")
             await self._sleep(settings.worker_poll_interval)
             return False
 
         if session is None:
             return False
 
-        print(
-            f"[INFO] Воркер взял в обработку сессию {session.id} "
-            f"(пользователь {session.user_id}, тип {session.session_type.value})",
-            flush=True,
-        )
+        logger.info(
+            f"Воркер взял в обработку сессию {session.id} "
+            f"(пользователь {session.user_id}, тип {session.session_type.value})")
         await self._slots.acquire()
         task = asyncio.create_task(self._process(session.id))
         self._running.add(task)
@@ -155,7 +147,7 @@ class Worker:
                 timeout=settings.worker_job_timeout,
             )
         except asyncio.TimeoutError:
-            print(f"[ERROR] Сессия {session_id}: таймаут обработки", flush=True)
+            logger.error(f"Сессия {session_id}: таймаут обработки")
             await self._mark_error(
                 session_id,
                 f"Обработка превысила {settings.worker_job_timeout} секунд",
@@ -164,8 +156,7 @@ class Worker:
             # process_dms_session ловит ошибки сам; сюда попадает только то,
             # что случилось до или помимо неё — иначе задача осталась бы
             # в processing навсегда.
-            print(f"[ERROR] Сессия {session_id}: {e}", flush=True)
-            traceback.print_exc()
+            logger.exception(f"Сессия {session_id}: {e}")
             await self._mark_error(session_id, f"{type(e).__name__}: {e}")
         finally:
             self._slots.release()
@@ -175,7 +166,7 @@ class Worker:
             async with async_session_factory() as db:
                 await SessionRepository(db).system_mark_error(session_id, message)
         except Exception as e:
-            print(f"[ERROR] Не удалось записать ошибку сессии {session_id}: {e}", flush=True)
+            logger.error(f"Не удалось записать ошибку сессии {session_id}: {e}")
 
     async def _reap_stale(self) -> None:
         try:
@@ -184,9 +175,9 @@ class Worker:
                     settings.worker_stale_timeout, settings.worker_max_attempts
                 )
             if returned:
-                print(f"[INFO] Возвращено в очередь брошенных задач: {returned}", flush=True)
+                logger.info(f"Возвращено в очередь брошенных задач: {returned}")
         except Exception as e:
-            print(f"[WARN] Не удалось проверить брошенные задачи: {e}", flush=True)
+            logger.warning(f"Не удалось проверить брошенные задачи: {e}")
 
     async def _sleep(self, seconds: float) -> None:
         """Пауза, прерываемая сигналом остановки."""
@@ -198,13 +189,16 @@ class Worker:
     async def _drain(self) -> None:
         """Дождаться начатых задач — иначе они остались бы в processing."""
         if self._running:
-            print(f"[INFO] Ждём завершения задач: {len(self._running)}", flush=True)
+            logger.info(f"Ждём завершения задач: {len(self._running)}")
             await asyncio.gather(*self._running, return_exceptions=True)
         await dispose_engine()
-        print("[INFO] Воркер остановлен", flush=True)
+        logger.info("Воркер остановлен")
 
 
 async def main() -> None:
+    # Идемпотентно: при запуске через python -m document_assistant.worker
+    # логирование уже настроено в __main__.py.
+    setup_logging()
     worker = Worker()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

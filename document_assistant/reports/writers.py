@@ -1,3 +1,4 @@
+import logging
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -11,6 +12,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from document_assistant.reports.report_models import InsuranceReport, ReportRow
 
+
+
+logger = logging.getLogger(__name__)
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 
@@ -152,12 +156,10 @@ class ExcelReportWriter(ReportWriter):
                 cell.alignment = center
                 ws.column_dimensions[cell.column_letter].width = [45, 14, 50][i]
 
-        print(
-            f"[INFO] Аннотировано {matched}/{len(report.rows)} строк LLM "
+        logger.info(
+            f"Аннотировано {matched}/{len(report.rows)} строк LLM "
             f"из {total_source_rows} строк оригинала "
-            f"({len(sheets_touched)} лист(ов))",
-            flush=True,
-        )
+            f"({len(sheets_touched)} лист(ов))")
 
         # Всегда добавляем полный ответ отдельным листом, независимо от того,
         # насколько удачно он лёг в шаблон клиента: сопоставление строк по

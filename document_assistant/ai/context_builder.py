@@ -7,11 +7,15 @@ Flow for each client chunk:
      highest-scoring sections that still fit.
 """
 
+import logging
 import re
 from typing import NamedTuple
 
 from document_assistant.core.settings import settings
 
+
+
+logger = logging.getLogger(__name__)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -282,11 +286,9 @@ class ContextBuilder:
         norm_budget = self._max_chars - len(skeleton)
 
         if norm_budget <= 0:
-            print(
-                "[WARN] Даже без нормативной базы промпт превышает контекст. "
-                "Обрезаем source_text.",
-                flush=True,
-            )
+            logger.warning(
+                "Даже без нормативной базы промпт превышает контекст. "
+                "Обрезаем source_text.")
             return prompt[: self._max_chars]
 
         retrieved = self._index.retrieve(source_text, norm_budget)
@@ -294,11 +296,9 @@ class ContextBuilder:
 
         tokens_est = len(fitted) // self.CHARS_PER_TOKEN
         sections_used = len([s for s in self._index._sections if s.content in retrieved])
-        print(
-            f"[INFO] Контекст: полная база не влезла → отобрано {sections_used} "
-            f"разделов из {self._index.section_count}, ~{tokens_est} токенов",
-            flush=True,
-        )
+        logger.info(
+            f"Контекст: полная база не влезла → отобрано {sections_used} "
+            f"разделов из {self._index.section_count}, ~{tokens_est} токенов")
         return fitted
 
     @staticmethod

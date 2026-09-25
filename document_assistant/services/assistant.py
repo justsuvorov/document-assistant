@@ -1,3 +1,4 @@
+import logging
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,9 @@ from document_assistant.core.settings import settings
 from document_assistant.reports.report_export import ReportExport
 from document_assistant.reports.report_models import InsuranceReport
 
+
+
+logger = logging.getLogger(__name__)
 
 class AIAssistantService:
     def __init__(
@@ -28,13 +32,13 @@ class AIAssistantService:
         limit = max_chunks_override if max_chunks_override > 0 else settings.llm_max_chunks
         if limit > 0:
             queries = queries[:limit]
-        print(f"[INFO] Обработка {len(queries)} чанков", flush=True)
+        logger.info(f"Обработка {len(queries)} чанков")
 
         reports = []
         debug_lines = []
         llm_chunks = []
         for i, query in enumerate(queries, 1):
-            print(f"[INFO] Чанк {i}/{len(queries)}...", flush=True)
+            logger.info(f"Чанк {i}/{len(queries)}...")
             raw_response = self._model.response(query)
             report = self._postprocessor.report(raw_response)
             reports.append(report)
@@ -52,9 +56,9 @@ class AIAssistantService:
             file_path = Path(self._report_export._task.file_path)
             debug_path = file_path.with_name(file_path.stem + "_llm_debug.md")
             debug_path.write_text("\n\n---\n\n".join(chunks), encoding="utf-8")
-            print(f"[DEBUG] LLM ответы сохранены: {debug_path}", flush=True)
+            logger.debug(f"LLM ответы сохранены: {debug_path}")
         except Exception as e:
-            print(f"[DEBUG] Не удалось сохранить LLM debug: {e}", flush=True)
+            logger.debug(f"Не удалось сохранить LLM debug: {e}")
 
     @staticmethod
     def rebuild_from_json(json_path: str, file_path: str, task: ProcessingTask) -> dict:
@@ -103,6 +107,6 @@ class AIAssistantService:
                 "chunks": chunks,
             }
             json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"[DEBUG] LLM JSON сохранён: {json_path}", flush=True)
+            logger.debug(f"LLM JSON сохранён: {json_path}")
         except Exception as e:
-            print(f"[DEBUG] Не удалось сохранить LLM JSON: {e}", flush=True)
+            logger.debug(f"Не удалось сохранить LLM JSON: {e}")

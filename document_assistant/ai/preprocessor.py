@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,9 @@ from document_assistant.ai.promt_builders import PromptEngine
 from document_assistant.core.parsers import DataParser
 from document_assistant.core.settings import settings
 
+
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessingTask:
@@ -252,9 +256,9 @@ class DocumentPreprocessor(Preprocessor):
             lines.append(f"\n### Chunk {i}\n\n{chunk[:800]}\n")
         try:
             debug_path.write_text("\n".join(lines), encoding="utf-8")
-            print(f"[DEBUG] {len(chunks)} чанков сохранено: {debug_path}", flush=True)
+            logger.debug(f"{len(chunks)} чанков сохранено: {debug_path}")
         except Exception as e:
-            print(f"[DEBUG] Не удалось сохранить: {e}", flush=True)
+            logger.debug(f"Не удалось сохранить: {e}")
 
     def _build_references(self) -> list[str]:
         return self._examples_loader.load(self._examples_path)

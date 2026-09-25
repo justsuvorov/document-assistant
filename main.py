@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -8,11 +9,14 @@ import uvicorn
 from document_assistant.auth.dependencies import RedirectToLogin
 from document_assistant.auth.keycloak import register_oauth_client
 from document_assistant.auth.routes import router as auth_router
-from document_assistant.core.settings import settings
+from document_assistant.core.logging_config import setup_logging
+from document_assistant.core.settings import settings, warn_if_state_not_shared
 from document_assistant.db.engine import dispose_engine, init_db, masked_database_url
 from document_assistant.storage import storage
 from document_assistant.web.api import router as api_router
 from document_assistant.web.pages import router as pages_router
+
+logger = logging.getLogger(__name__)
 
 
 def _log_effective_config() -> None:
@@ -22,33 +26,31 @@ def _log_effective_config() -> None:
     по логам не понять, какой адрес процесс вообще пытается использовать:
     значения приходят из ConfigMap/Secret и в коде не видны.
     """
-    print(
-        "[INFO] Конфигурация: "
+    logger.info(
+        "Конфигурация: "
         f"БД={masked_database_url()}, "
         f"хранилище={settings.storage_dir}, "
         f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
         f"нормативка={settings.normative_base}, "
-        f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}",
-        flush=True,
-    )
+        f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}")
+    warn_if_state_not_shared()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     _log_effective_config()
     try:
         await init_db()
     except Exception as e:
         # Без этого причина видна только в traceback'е "Application startup
         # failed", который в kubectl logs читается плохо.
-        print(
-            f"[ERROR] Не удалось подключиться к БД {masked_database_url()}: "
+        logger.error(
+            f"Не удалось подключиться к БД {masked_database_url()}: "
             f"{type(e).__name__}: {e}. Проверьте доступность хоста и порта БД "
-            "из кластера и DATABASE_URL в secret.",
-            flush=True,
-        )
+            "из кластера и DATABASE_URL в secret.")
         raise
-    print("[INFO] Подключение к БД установлено, схема актуальна", flush=True)
+    logger.info("Подключение к БД установлено, схема актуальна")
     register_oauth_client()
     try:
         storage.ensure_root()
@@ -56,11 +58,11 @@ async def lifespan(app: FastAPI):
         # Приложение поднимаем в любом случае: без каталога сломается загрузка
         # файлов, но страница логина и история сессий останутся доступны,
         # и в логах будет видна настоящая причина.
-        print(f"[WARN] Каталог хранилища недоступен на старте: {e}", flush=True)
+        logger.warning(f"Каталог хранилища недоступен на старте: {e}")
     if settings.auth_disabled:
-        print("[WARN] AUTH_DISABLED=true — авторизация отключена, "
+        logger.warning("AUTH_DISABLED=true — авторизация отключена, "
               "все запросы идут от пользователя "
-              f"'{settings.auth_dev_user_id}'. Не используйте в проде.", flush=True)
+              f"'{settings.auth_dev_user_id}'. Не используйте в проде.")
     yield
     await dispose_engine()
 
