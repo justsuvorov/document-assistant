@@ -17,13 +17,22 @@ import signal
 import traceback
 
 from document_assistant.core.settings import settings
-from document_assistant.db.engine import async_session_factory, dispose_engine, init_db
+from document_assistant.db.engine import (
+    async_session_factory,
+    dispose_engine,
+    init_db,
+    masked_database_url,
+)
 from document_assistant.db.repository import SessionRepository
 from document_assistant.storage import storage
 from document_assistant.worker.tasks import process_dms_session
 
 # Реже, чем захват задач: подметать брошенные задачи каждый оборот незачем.
 _REAP_EVERY_SECONDS = 60
+
+# «Я жив, очередь пуста» — иначе молчание в логах неотличимо от зависшего
+# воркера (например, соединение с БД установлено, но ответа нет).
+_HEARTBEAT_EVERY_SECONDS = 60
 
 
 class Worker:
@@ -40,7 +49,32 @@ class Worker:
             self._stopping.set()
 
     async def run(self) -> None:
-        await init_db()
+        print(
+            "[INFO] Конфигурация воркера: "
+            f"БД={masked_database_url()}, "
+            f"хранилище={settings.storage_dir}, "
+            f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
+            f"опрос очереди раз в {settings.worker_poll_interval} сек",
+            flush=True,
+        )
+        try:
+            await init_db()
+        except Exception as e:
+            # Сырой traceback здесь бесполезен тому, кто смотрит kubectl logs:
+            # причина почти всегда сетевая (хост/порт БД недоступен из кластера).
+            # Выходим с ненулевым кодом — под перезапустится, сигнал не теряется.
+            print(
+                f"[ERROR] Не удалось подключиться к БД {masked_database_url()}: "
+                f"{type(e).__name__}: {e}",
+                flush=True,
+            )
+            print(
+                "[ERROR] Проверьте доступность хоста и порта БД из кластера "
+                "и правильность DATABASE_URL в secret.",
+                flush=True,
+            )
+            raise SystemExit(1)
+
         storage.ensure_root()
         print(
             f"[INFO] Воркер запущен: каталог {storage.root}, "
@@ -49,17 +83,30 @@ class Worker:
         )
 
         since_reap = float("inf")  # подмести сразу на старте
+        since_heartbeat = 0.0
+        polls = 0
         while not self._stopping.is_set():
             if since_reap >= _REAP_EVERY_SECONDS:
                 await self._reap_stale()
                 since_reap = 0.0
 
             claimed = await self._claim_and_start()
+            polls += 1
             if claimed:
                 continue  # очередь не пуста — сразу за следующей
 
             await self._sleep(settings.worker_poll_interval)
             since_reap += settings.worker_poll_interval
+            since_heartbeat += settings.worker_poll_interval
+
+            if since_heartbeat >= _HEARTBEAT_EVERY_SECONDS:
+                print(
+                    f"[INFO] Воркер жив: очередь пуста, опросов за последние "
+                    f"{int(since_heartbeat)} сек — {polls}",
+                    flush=True,
+                )
+                since_heartbeat = 0.0
+                polls = 0
 
         await self._drain()
 
@@ -71,12 +118,30 @@ class Worker:
             await self._sleep(settings.worker_poll_interval)
             return False
 
-        async with async_session_factory() as db:
-            session = await SessionRepository(db).system_claim_next()
+        # Ошибка БД здесь не должна ронять процесс: у _reap_stale защита уже
+        # есть, а этот вызов раньше валил весь воркер в CrashLoopBackOff при
+        # любом сетевом сбое — причину приходилось искать в логах предыдущего
+        # пода (kubectl logs --previous).
+        try:
+            async with async_session_factory() as db:
+                session = await SessionRepository(db).system_claim_next()
+        except Exception as e:
+            print(
+                f"[ERROR] Не удалось получить задачу из очереди "
+                f"(БД {masked_database_url()}): {type(e).__name__}: {e}",
+                flush=True,
+            )
+            await self._sleep(settings.worker_poll_interval)
+            return False
 
         if session is None:
             return False
 
+        print(
+            f"[INFO] Воркер взял в обработку сессию {session.id} "
+            f"(пользователь {session.user_id}, тип {session.session_type.value})",
+            flush=True,
+        )
         await self._slots.acquire()
         task = asyncio.create_task(self._process(session.id))
         self._running.add(task)

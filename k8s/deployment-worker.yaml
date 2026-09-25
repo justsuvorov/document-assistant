@@ -1,0 +1,50 @@
+# Вся длинная LLM-обработка — здесь. Ничего не слушает (нет ни одного порта),
+# поэтому нет ни Service, ни probes: забирает задачи прямо из таблицы sessions
+# (FOR UPDATE SKIP LOCKED — безопасно при нескольких репликах, можно scale'ить
+# replicas при необходимости, WORKER_MAX_JOBS ограничивает параллелизм внутри
+# каждой реплики).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-assistant-worker
+  namespace: document-assistant
+  labels:
+    app: document-assistant
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: document-assistant
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: document-assistant
+        component: worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: worker
+          image: ghcr.io/justsuvorov/document-assistant:0.1
+          command: ["python", "-m", "document_assistant.worker"]
+          envFrom:
+            - configMapRef:
+                name: document-assistant-config
+            - secretRef:
+                name: document-assistant-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: document-assistant-data

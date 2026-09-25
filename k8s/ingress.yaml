@@ -1,0 +1,28 @@
+# Заполните перед apply:
+#   ingressClassName — имя вашего ingress-контроллера (kubectl get ingressclass)
+#   host             — реальный домен
+# TLS закомментирован — раскомментируйте и укажите secretName, если в кластере
+# есть cert-manager/готовый сертификат.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: document-assistant
+  namespace: document-assistant
+  annotations: {}
+spec:
+  ingressClassName: <INGRESS_CLASS>
+  rules:
+    - host: <HOST>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: document-assistant-api
+                port:
+                  number: 80
+  # tls:
+  #   - hosts:
+  #       - <HOST>
+  #     secretName: document-assistant-tls

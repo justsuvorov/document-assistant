@@ -9,15 +9,46 @@ from document_assistant.auth.dependencies import RedirectToLogin
 from document_assistant.auth.keycloak import register_oauth_client
 from document_assistant.auth.routes import router as auth_router
 from document_assistant.core.settings import settings
-from document_assistant.db.engine import dispose_engine, init_db
+from document_assistant.db.engine import dispose_engine, init_db, masked_database_url
 from document_assistant.storage import storage
 from document_assistant.web.api import router as api_router
 from document_assistant.web.pages import router as pages_router
 
 
+def _log_effective_config() -> None:
+    """Куда именно процесс будет ходить — первым делом в логах.
+
+    Без этого при проблемах со связью (БД недоступна, модель за файрволом)
+    по логам не понять, какой адрес процесс вообще пытается использовать:
+    значения приходят из ConfigMap/Secret и в коде не видны.
+    """
+    print(
+        "[INFO] Конфигурация: "
+        f"БД={masked_database_url()}, "
+        f"хранилище={settings.storage_dir}, "
+        f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
+        f"нормативка={settings.normative_base}, "
+        f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}",
+        flush=True,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    _log_effective_config()
+    try:
+        await init_db()
+    except Exception as e:
+        # Без этого причина видна только в traceback'е "Application startup
+        # failed", который в kubectl logs читается плохо.
+        print(
+            f"[ERROR] Не удалось подключиться к БД {masked_database_url()}: "
+            f"{type(e).__name__}: {e}. Проверьте доступность хоста и порта БД "
+            "из кластера и DATABASE_URL в secret.",
+            flush=True,
+        )
+        raise
+    print("[INFO] Подключение к БД установлено, схема актуальна", flush=True)
     register_oauth_client()
     try:
         storage.ensure_root()

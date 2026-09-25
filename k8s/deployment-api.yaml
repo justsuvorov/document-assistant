@@ -1,0 +1,60 @@
+# Веб-приложение: страницы, /api/*, приём файлов, авторизация. Быстрые операции
+# только — вся долгая LLM-обработка ушла в отдельный Deployment (worker.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-assistant-api
+  namespace: document-assistant
+  labels:
+    app: document-assistant
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: document-assistant
+      component: api
+  template:
+    metadata:
+      labels:
+        app: document-assistant
+        component: api
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: api
+          image: ghcr.io/justsuvorov/document-assistant:0.1
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: document-assistant-config
+            - secretRef:
+                name: document-assistant-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: document-assistant-data

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -19,6 +20,18 @@ from document_assistant.db.models import Base
 _engine = create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
 
 async_session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
+
+
+def masked_database_url() -> str:
+    """DATABASE_URL без пароля — для стартовых логов.
+
+    В логи нужен хост и порт БД (иначе при проблемах со связью непонятно, куда
+    процесс вообще пытается достучаться), но пароль туда попадать не должен.
+    """
+    try:
+        return make_url(settings.database_url).render_as_string(hide_password=True)
+    except Exception:
+        return "<не удалось разобрать DATABASE_URL>"
 
 
 async def init_db() -> None:

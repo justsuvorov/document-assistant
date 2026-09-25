@@ -12,8 +12,6 @@ tests/
 docs/
 *.md
 uploads/
-normative_base/
-examples/
 dist/
 build/
 data/
@@ -23,3 +21,4 @@ document_assistant.db
 *.spec
 client.xlsx
 Запрос.xlsx
+k8s/

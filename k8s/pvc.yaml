@@ -1,0 +1,18 @@
+# Общий каталог сессий (STORAGE_DIR) для api и worker — оба Deployment'а
+# монтируют один и тот же PVC, поэтому нужен ReadWriteMany.
+#
+# Заполните перед apply:
+#   storageClassName — имя вашего RWX storage class (NFS/CephFS/Longhorn и т.п.)
+#   requests.storage  — под реальный объём файлов сессий
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: document-assistant-data
+  namespace: document-assistant
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: <RWX_STORAGE_CLASS>
+  resources:
+    requests:
+      storage: 10Gi
