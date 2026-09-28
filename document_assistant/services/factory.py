@@ -37,7 +37,14 @@ def build_dms_service(
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
                 normative_base=normative_base or settings.normative_base,
-                num_ctx=settings.qwen_num_ctx,
+                # Бюджет контекста берём у того провайдера, который реально
+                # будет вызван (ModelFactory смотрит на тот же AI_PROVIDER):
+                # иначе при VSK промт нарезался бы под окно Qwen.
+                num_ctx=(
+                    settings.vsk_num_ctx
+                    if settings.ai_provider == "vsk"
+                    else settings.qwen_num_ctx
+                ),
             ),
             examples_path=settings.examples_path,
         ),

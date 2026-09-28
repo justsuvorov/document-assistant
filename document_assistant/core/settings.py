@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     qwen_max_tokens: int = Field(100_000, alias="QWEN_MAX_TOKENS")
     qwen_num_ctx: int = Field(400_000, alias="QWEN_NUM_CTX")  # полное контекстное окно модели
 
+    # --- VSK AI (OpenAI-compatible CHAT API, /v1/chat/completions) ---
+    # Включается через AI_PROVIDER=vsk. В отличие от Qwen здесь chat-формат
+    # (messages[]), а не completions (prompt), и нужен Bearer-токен.
+    vsk_api_url: str = Field("", alias="VSK_API_URL")
+    vsk_api_key: SecretStr | None = Field(None, alias="VSK_API_KEY")
+    vsk_model_name: str = Field("", alias="VSK_MODEL_NAME")
+    vsk_max_tokens: int = Field(100_000, alias="VSK_MAX_TOKENS")
+    vsk_thinking_token_budget: int = Field(1_000, alias="VSK_THINKING_TOKEN_BUDGET")
+    vsk_num_ctx: int = Field(400_000, alias="VSK_NUM_CTX")  # полное контекстное окно модели
+
     # --- PROMPT ---
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")

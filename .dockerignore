@@ -22,3 +22,14 @@ document_assistant.db
 client.xlsx
 Запрос.xlsx
 k8s/
+
+# Остатки ручной отладки с реальными клиентскими документами внутри —
+# в образ им попадать нельзя (он уезжает в общий registry).
+1/
+2/
+Новая папка/
+Формы ответа/
+_llm_stub.py;D
+reprocess_from_debug.py
+run-all.bat
+docker-compose.yaml

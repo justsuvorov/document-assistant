@@ -1,9 +1,12 @@
+import logging
 import re
 import time
 import httpx
 from abc import ABC, abstractmethod
 
 from document_assistant.core.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AIModel(ABC):
@@ -38,48 +41,40 @@ class QwenModel(AIModel):
                 return self._call_api(query)
             except ValueError as exc:
                 if self._is_empty_response(exc) and attempt < self.empty_response_retries:
-                    print(
-                        f"[WARN] Qwen не вернул текст, "
+                    logger.warning(
+                        f"Qwen не вернул текст, "
                         f"попытка {attempt}/{self.empty_response_retries}, "
-                        f"повтор через {self.empty_response_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.empty_response_delay} сек")
                     time.sleep(self.empty_response_delay)
                     continue
                 raise RuntimeError(f"Ошибка Qwen API: {exc}") from exc
 
             except httpx.TimeoutException as exc:
                 if attempt < self.retries:
-                    print(
-                        f"[WARN] Qwen таймаут (ReadTimeout), "
+                    logger.warning(
+                        f"Qwen таймаут (ReadTimeout), "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек")
                     time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка Qwen API: таймаут после {self.retries} попыток") from exc
 
             except httpx.HTTPStatusError as exc:
                 if (exc.response.status_code in (503, 504) and attempt < self.retries):
-                    print(
-                        f"[WARN] Qwen {exc.response.status_code}, "
+                    logger.warning(
+                        f"Qwen {exc.response.status_code}, "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек")
                     time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка Qwen API: {exc}") from exc
 
             except Exception as exc:
                 if self._is_overload(exc) and attempt < self.retries:
-                    print(
-                        f"[WARN] Qwen перегружен, "
+                    logger.warning(
+                        f"Qwen перегружен, "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек. Ошибка: {exc}",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек. Ошибка: {exc}")
                     time.sleep(self.retry_delay)
                     continue
 
@@ -159,48 +154,40 @@ class VskAIModel(AIModel):
                 return self._call_api(query)
             except ValueError as exc:
                 if self._is_empty_response(exc) and attempt < self.empty_response_retries:
-                    print(
-                        f"[WARN] VSK AI не вернул текст, "
+                    logger.warning(
+                        f"VSK AI не вернул текст, "
                         f"попытка {attempt}/{self.empty_response_retries}, "
-                        f"повтор через {self.empty_response_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.empty_response_delay} сек")
                     time.sleep(self.empty_response_delay)
                     continue
                 raise RuntimeError(f"Ошибка VSK AI API: {exc}") from exc
 
             except httpx.TimeoutException as exc:
                 if attempt < self.retries:
-                    print(
-                        f"[WARN] VSK AI таймаут (ReadTimeout), "
+                    logger.warning(
+                        f"VSK AI таймаут (ReadTimeout), "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек")
                     time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка VSK AI API: таймаут после {self.retries} попыток") from exc
 
             except httpx.HTTPStatusError as exc:
                 if (exc.response.status_code in (503, 504) and attempt < self.retries):
-                    print(
-                        f"[WARN] VSK AI {exc.response.status_code}, "
+                    logger.warning(
+                        f"VSK AI {exc.response.status_code}, "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек")
                     time.sleep(self.retry_delay)
                     continue
                 raise RuntimeError(f"Ошибка VSK AI API: {exc}") from exc
 
             except Exception as exc:
                 if self._is_overload(exc) and attempt < self.retries:
-                    print(
-                        f"[WARN] VSK AI перегружен, "
+                    logger.warning(
+                        f"VSK AI перегружен, "
                         f"попытка {attempt}/{self.retries}, "
-                        f"повтор через {self.retry_delay} сек. Ошибка: {exc}",
-                        flush=True,
-                    )
+                        f"повтор через {self.retry_delay} сек. Ошибка: {exc}")
                     time.sleep(self.retry_delay)
                     continue
 
