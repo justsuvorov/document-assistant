@@ -150,10 +150,17 @@ class Excel(Parser):
 
     def read_document(self, file_path: str) -> str:
         xl = pd.ExcelFile(file_path)
+        hidden = self._hidden_columns(file_path)
         sections = []
 
         for sheet_name in xl.sheet_names:
             df = xl.parse(sheet_name)
+            visible = hidden.get(sheet_name)
+            if visible:
+                # pandas отбрасывает пустые столбцы справа — берём только то, что есть.
+                df = df.iloc[:, [i for i in visible if i < df.shape[1]]]
+            # Пустые заголовки pandas называет "Unnamed: N" — это шум для модели.
+            df.columns = ["" if str(c).startswith("Unnamed") else c for c in df.columns]
 
             if df.dropna(how="all").empty:
                 continue
@@ -172,6 +179,35 @@ class Excel(Parser):
             sections.append(f"## Лист: {sheet_name}\n\n{md_table}")
 
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _hidden_columns(file_path: str) -> dict[str, list[int]]:
+        """Для каждого листа — позиции ВИДИМЫХ столбцов (0-based), если есть скрытые.
+
+        Скрытые столбцы в шаблонах клиентов служебные (категории, коды): модель,
+        видя их, склеивает категорию с текстом требования («Страховым случаем
+        является острое заболевание» вместо «остром заболевании»), и ответ потом
+        не находится в шаблоне. Листы без скрытых столбцов в словарь не попадают.
+        Только .xlsx: у .xls openpyxl не читает оформление.
+        """
+        if Path(file_path).suffix.lower() != ".xlsx":
+            return {}
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(file_path)
+        except Exception:
+            return {}
+
+        result: dict[str, list[int]] = {}
+        for ws in wb.worksheets:
+            hidden: set[int] = set()
+            for dim in ws.column_dimensions.values():
+                if dim.hidden and dim.min and dim.max:
+                    hidden.update(range(dim.min, dim.max + 1))
+            visible = [c - 1 for c in range(1, ws.max_column + 1) if c not in hidden]
+            if hidden and visible:
+                result[ws.title] = visible
+        return result
 
 
 class Word(Parser):

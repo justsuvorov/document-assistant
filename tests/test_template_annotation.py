@@ -157,3 +157,51 @@ class TestLlmTextVariants:
         # Ничего не сопоставилось — лист клиента остаётся нетронутым,
         # ответ при этом есть на листе «Результат».
         assert ws.max_column == 1
+
+
+def _hidden_category_template(path: Path) -> Path:
+    """Как «ОУ.xlsx»: в скрытом A повторяется категория, требования — в D."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = SHEET
+    ws.append([None, None, None, "ОБЪЕМ УСЛУГ", "ДЕЙСТВУЮЩИЕ УСЛОВИЯ"])
+    ws.append(["ВИД ПОМОЩИ", "БЛОК", "ДЕТАЛИЗАЦИЯ", "(!) ОБЪЕМ ПРИМЕНИМ", "подтверждение"])
+    ws.append(["Страховым случаем является", None, None, "остром заболевании (состоянии)", None])
+    ws.append(["Страховым случаем является", None, None, "обострении хронического заболевания", None])
+    ws.append(["Страховым случаем является", None, None, "несчастном случае, в том числе травме", None])
+    for col in "ABC":
+        ws.column_dimensions[col].hidden = True
+    wb.save(path)
+    return path
+
+
+class TestHiddenCategoryColumns:
+    def test_requirement_column_is_detected_not_assumed_a(self, tmp_path):
+        template = _hidden_category_template(tmp_path / "t.xlsx")
+        ws = _write(tmp_path, template, [
+            ("остром заболевании (состоянии)", "Есть"),
+            ("обострении хронического заболевания", "Есть"),
+            ("несчастном случае, в том числе травме", "Частично"),
+        ])
+        col = _status_col(ws)
+
+        assert [ws.cell(row=r, column=col).value for r in (3, 4, 5)] == ["Есть", "Есть", "Частично"]
+
+    def test_hidden_and_client_columns_untouched(self, tmp_path):
+        template = _hidden_category_template(tmp_path / "t.xlsx")
+        ws = _write(tmp_path, template, [("остром заболевании (состоянии)", "Есть")])
+
+        assert ws["A3"].value == "Страховым случаем является"
+        assert ws["D3"].value == "остром заболевании (состоянии)"
+        assert ws["E2"].value == "подтверждение"
+        assert _status_col(ws) > 5
+
+    def test_hidden_columns_are_not_sent_to_model(self, tmp_path):
+        from document_assistant.core.parsers import DataParser
+
+        template = _hidden_category_template(tmp_path / "t.xlsx")
+        text = DataParser(str(template)).origin_data(str(template))
+
+        assert "остром заболевании" in text
+        assert "Страховым случаем является" not in text
+        assert "ВИД ПОМОЩИ" not in text

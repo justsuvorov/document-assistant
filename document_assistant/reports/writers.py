@@ -114,8 +114,9 @@ class ExcelReportWriter(ReportWriter):
         # Одинаковые тексты НЕ схлопываются — у каждого вхождения своя позиция.
         candidates: list[tuple[str, tuple]] = []
         for ws in wb.worksheets:
+            req_col = self._requirement_column(ws)
             for row_idx in range(2, ws.max_row + 1):
-                val = ws.cell(row=row_idx, column=1).value
+                val = ws.cell(row=row_idx, column=req_col).value
                 if val:
                     key = self._norm(str(val))
                     if key:
@@ -207,6 +208,40 @@ class ExcelReportWriter(ReportWriter):
         while f"{base} ({i})" in wb.sheetnames:
             i += 1
         return f"{base} ({i})"
+
+    @staticmethod
+    def _hidden_columns(ws) -> set[int]:
+        hidden: set[int] = set()
+        for dim in ws.column_dimensions.values():
+            if dim.hidden and dim.min and dim.max:
+                hidden.update(range(dim.min, dim.max + 1))
+        return hidden
+
+    @classmethod
+    def _requirement_column(cls, ws) -> int:
+        """Столбец с формулировками требований (1-based).
+
+        Не всегда A: в шаблонах бывают служебные столбцы слева (часто скрытые) —
+        например, категория «Амбулаторно-поликлиническая помощь», повторённая в
+        сотнях строк. Требование — это столбец с наибольшим числом РАЗНЫХ
+        длинных текстов. Видимые столбцы в приоритете: скрытые пользователь
+        не видит и сопоставлять по ним ответ бессмысленно.
+        """
+        hidden = cls._hidden_columns(ws)
+        scores: dict[int, int] = {}
+        for col in range(1, ws.max_column + 1):
+            values = {
+                str(v).strip()
+                for (v,) in ws.iter_rows(min_row=2, min_col=col, max_col=col, values_only=True)
+                if v not in (None, "") and len(str(v).strip()) >= 10
+            }
+            scores[col] = len(values)
+
+        for pool in ([c for c in scores if c not in hidden], list(scores)):
+            best = max(pool, key=lambda c: (scores[c], -c), default=None)
+            if best is not None and scores[best] > 0:
+                return best
+        return 1
 
     @staticmethod
     def _last_used_column(ws) -> int:
