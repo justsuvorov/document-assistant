@@ -10,7 +10,11 @@ from document_assistant.auth.dependencies import RedirectToLogin
 from document_assistant.auth.keycloak import register_oauth_client
 from document_assistant.auth.routes import router as auth_router
 from document_assistant.core.logging_config import setup_logging
-from document_assistant.core.settings import settings, warn_if_state_not_shared
+from document_assistant.core.settings import (
+    active_model_endpoint,
+    settings,
+    warn_if_state_not_shared,
+)
 from document_assistant.db.engine import dispose_engine, init_db, masked_database_url
 from document_assistant.storage import storage
 from document_assistant.web.api import router as api_router
@@ -20,17 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 def _log_effective_config() -> None:
-    """Куда именно процесс будет ходить — первым делом в логах.
-
-    Без этого при проблемах со связью (БД недоступна, модель за файрволом)
-    по логам не понять, какой адрес процесс вообще пытается использовать:
-    значения приходят из ConfigMap/Secret и в коде не видны.
-    """
     logger.info(
         "Конфигурация: "
         f"БД={masked_database_url()}, "
         f"хранилище={settings.storage_dir}, "
-        f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
+        f"модель={settings.ai_provider or '<AI_PROVIDER не задан>'} → {active_model_endpoint()}, "
         f"нормативка={settings.normative_base}, "
         f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}")
     warn_if_state_not_shared()

@@ -240,5 +240,30 @@ class ModelFactory:
     @staticmethod
     def create() -> AIModel:
         if settings.ai_provider == "vsk":
-            return VskAIModel()
-        return QwenModel()
+            model = VskAIModel()
+            # Значение ключа не логируем никогда — только факт наличия.
+            logger.info(
+                f"Модель: VskAIModel (AI_PROVIDER={settings.ai_provider}), "
+                f"имя модели '{settings.vsk_model_name or '<НЕ ЗАДАНО>'}', "
+                f"эндпоинт {settings.vsk_api_url or '<НЕ ЗАДАН VSK_API_URL>'} (chat-формат), "
+                f"ключ {'задан' if settings.vsk_api_key else 'НЕ ЗАДАН'}, "
+                f"окно {settings.vsk_num_ctx} токенов, "
+                f"max_tokens {settings.vsk_max_tokens}, "
+                f"thinking_token_budget {settings.vsk_thinking_token_budget}, "
+                f"температура {settings.ai_temperature}, "
+                f"повторов при сбое {VskAIModel.retries}"
+            )
+            return model
+
+        model = QwenModel()
+        logger.info(
+            f"Модель: QwenModel (AI_PROVIDER={settings.ai_provider or '<НЕ ЗАДАН>'}), "
+            f"имя модели '{settings.qwen_model_name or '<НЕ ЗАДАНО>'}', "
+            f"эндпоинт {settings.qwen_api_url or '<НЕ ЗАДАН QWEN_API_URL>'} (completions-формат), "
+            f"ключ не используется, "
+            f"окно {settings.qwen_num_ctx} токенов, "
+            f"max_tokens {settings.qwen_max_tokens}, "
+            f"температура {settings.ai_temperature}, "
+            f"повторов при сбое {QwenModel.retries}"
+        )
+        return model

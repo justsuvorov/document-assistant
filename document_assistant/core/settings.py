@@ -126,16 +126,15 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def warn_if_state_not_shared() -> None:
-    """Предупредить, если api и worker гарантированно не увидят общее состояние.
+def active_model_endpoint() -> str:
 
-    api и worker — разные процессы (в проде — разные контейнеры), и связывает
-    их только БД (очередь задач) и каталог хранилища (файлы). Дефолты этих
-    двух настроек — относительные пути, и если переменные окружения не доехали
-    (не применился ConfigMap, забыт -e при docker run), каждый процесс молча
-    создаст СВОЮ базу и СВОЙ каталог: api запишет сессию в queued, worker будет
-    вечно видеть пустую очередь, и ни одной ошибки в логах при этом не будет.
-    """
+    if settings.ai_provider == "vsk":
+        return settings.vsk_api_url or "<НЕ ЗАДАН VSK_API_URL>"
+    return settings.qwen_api_url or "<НЕ ЗАДАН QWEN_API_URL>"
+
+
+def warn_if_state_not_shared() -> None:
+
     url = settings.database_url
     if url.startswith("sqlite") and ":///./" in url:
         logger.warning(

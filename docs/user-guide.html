@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ДМС-ассистент — Руководство пользователя</title>
+<style>
+  :root {
+    --bg: #002033; --card: #0d2e45; --card2: #103a58;
+    --muted: #8eafc0; --white: #ffffff; --blue: #1a6fa8;
+    --orange: #c47a1e; --green: #2e8b57; --red: #b3423a; --dim: #4a5560;
+    --border: #1c445f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--white);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 24px 80px; }
+  header.doc { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  header.doc .logo {
+    width: 44px; height: 44px; border-radius: 10px; background: var(--blue);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px; flex-shrink: 0;
+  }
+  h1 { font-size: 26px; margin: 0; }
+  .subtitle { color: var(--muted); font-size: 14px; margin: 6px 0 32px; }
+
+  nav.toc { background: var(--card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 18px 22px; margin-bottom: 36px; }
+  nav.toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+               color: var(--muted); margin: 0 0 10px; }
+  nav.toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 28px; }
+  nav.toc li { margin-bottom: 6px; font-size: 14px; break-inside: avoid; }
+  nav.toc a { color: var(--white); text-decoration: none; }
+  nav.toc a:hover { color: var(--orange); text-decoration: underline; }
+
+  section { margin-bottom: 40px; }
+  h2 { font-size: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+       margin-bottom: 16px; scroll-margin-top: 16px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  p, li { color: #dbe7ef; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--white); }
+
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 8px; padding: 16px 18px; margin: 14px 0; }
+
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps > li { counter-increment: step; position: relative;
+                padding-left: 42px; margin-bottom: 16px; }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 27px; height: 27px; background: var(--blue); border-radius: 50%;
+    color: var(--white); font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  code { background: #06263a; border: 1px solid var(--border); border-radius: 4px;
+         padding: 1px 6px; font-family: Consolas, "Cascadia Code", monospace;
+         font-size: 13px; color: #ffd699; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { color: var(--muted); font-size: 12.5px; font-weight: 600;
+       text-transform: uppercase; letter-spacing: .03em; }
+
+  .badge { display: inline-block; padding: 2px 11px; border-radius: 999px;
+           font-size: 12px; background: var(--dim); color: var(--white);
+           white-space: nowrap; }
+  .badge.queued { background: var(--dim); }
+  .badge.processing { background: var(--orange); }
+  .badge.done { background: var(--green); }
+  .badge.error { background: var(--red); }
+
+  .note { background: var(--card2); border-left: 3px solid var(--orange);
+          border-radius: 6px; padding: 11px 16px; margin: 14px 0;
+          font-size: 14px; color: #f2e2c8; }
+  .note strong { color: var(--orange); }
+
+  .faq { background: var(--card); border: 1px solid var(--border);
+         border-left: 3px solid var(--red); border-radius: 6px;
+         padding: 14px 18px; margin-bottom: 12px; }
+  .faq .q { font-weight: 600; margin-bottom: 6px; }
+  .faq .a { font-size: 14px; color: #dbe7ef; }
+  .faq .a p { margin: 6px 0 0; }
+  .faq.info { border-left-color: var(--blue); }
+
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: 12.5px; }
+
+  @media (max-width: 560px) { nav.toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc">
+    <div class="logo">ДМС</div>
+    <h1>ДМС-ассистент</h1>
+  </header>
+  <p class="subtitle">Руководство пользователя · веб-версия</p>
+
+  <nav class="toc">
+    <h2>Содержание</h2>
+    <ol>
+      <li><a href="#about">Что делает ассистент</a></li>
+      <li><a href="#login">Вход в систему</a></li>
+      <li><a href="#main">Главный экран</a></li>
+      <li><a href="#run">Как запустить обработку</a></li>
+      <li><a href="#status">Статусы обработки</a></li>
+      <li><a href="#result">Что внутри файла результата</a></li>
+      <li><a href="#normative">Нормативная база</a></li>
+      <li><a href="#formats">Форматы файлов</a></li>
+      <li><a href="#faq">Частые вопросы и ошибки</a></li>
+    </ol>
+  </nav>
+
+  <section id="about">
+    <h2>1. Что делает ассистент</h2>
+    <p>
+      ДМС-ассистент сопоставляет запрос клиента с нормативной базой программ добровольного
+      медицинского страхования. Вы загружаете файл клиента — сервис разбирает его построчно,
+      сверяет каждое требование с программой страхования и возвращает готовый файл с отметками
+      <strong>«Есть» / «Нет» / «Частично»</strong> и комментарием по каждой строке.
+    </p>
+    <p>
+      Обработка идёт на сервере в фоне. Загрузив файл, страницу можно закрыть и вернуться позже —
+      результат никуда не денется.
+    </p>
+  </section>
+
+  <section id="login">
+    <h2>2. Вход в систему</h2>
+    <p>
+      Откройте адрес сервиса в браузере. Вы попадёте на главную страницу; в правом верхнем углу
+      отображается ваше имя пользователя и ссылка <strong>«Выйти»</strong>.
+    </p>
+    <div class="note">
+      <strong>На текущем этапе внедрения</strong> вход выполняется автоматически, без ввода логина
+      и пароля, и все пользователи работают под одной учётной записью. Это значит, что
+      <strong>вы видите обработки коллег, а они — ваши</strong>. После подключения корпоративной
+      авторизации каждый будет видеть только свои сессии.
+    </div>
+  </section>
+
+  <section id="main">
+    <h2>3. Главный экран</h2>
+    <p>Главная страница состоит из двух блоков.</p>
+
+    <h3>Новая обработка</h3>
+    <p>Форма запуска: файл клиента, нормативная база (необязательно) и лимит разделов.</p>
+
+    <h3>Мои сессии</h3>
+    <p>
+      Таблица со всеми вашими обработками: имя файла, текущий статус и дата создания.
+      Имя файла — ссылка на страницу обработки. Если обработок ещё не было, отображается
+      «Обработок пока нет.»
+    </p>
+  </section>
+
+  <section id="run">
+    <h2>4. Как запустить обработку</h2>
+    <ol class="steps">
+      <li>
+        <strong>Файл клиента</strong> (обязательно) — нажмите кнопку выбора файла и укажите
+        запрос клиента.
+      </li>
+      <li>
+        <strong>Нормативная база</strong> (необязательно) — если нужно сверять по конкретной
+        программе, загрузите её файл. Если поле оставить пустым, используется база по умолчанию,
+        заложенная в сервис.
+      </li>
+      <li>
+        <strong>Максимум разделов</strong> — оставьте <code>0</code>, чтобы обработать документ
+        целиком. Значение больше нуля ограничивает обработку первыми N разделами: это быстрее
+        и подходит, чтобы проверить результат на части большого файла.
+      </li>
+      <li>
+        Нажмите <strong>«Подготовить»</strong>. Откроется страница обработки, статус на ней
+        обновляется автоматически каждые 2 секунды — обновлять страницу вручную не нужно.
+      </li>
+      <li>
+        Когда статус сменится на <span class="badge done">готово</span>, нажмите
+        <strong>«Скачать результат»</strong>.
+      </li>
+    </ol>
+    <div class="note">
+      Страницу можно закрыть сразу после запуска. Обработка идёт на сервере и не прервётся.
+      Вернуться к ней можно из списка «Мои сессии» на главной.
+    </div>
+  </section>
+
+  <section id="status">
+    <h2>5. Статусы обработки</h2>
+    <table>
+      <tr><th>Статус</th><th>Что означает</th><th>Что делать</th></tr>
+      <tr>
+        <td><span class="badge queued">в очереди</span></td>
+        <td>Файлы приняты и сохранены, задача ждёт свободного обработчика.</td>
+        <td>Подождать. Обычно несколько секунд.</td>
+      </tr>
+      <tr>
+        <td><span class="badge processing">обработка</span></td>
+        <td>Идёт разбор документа и обращение к модели.</td>
+        <td>
+          Ждать. Время зависит от размера документа: каждый раздел обрабатывается отдельным
+          запросом к модели, поэтому большие файлы могут занимать десятки минут.
+        </td>
+      </tr>
+      <tr>
+        <td><span class="badge done">готово</span></td>
+        <td>Результат сформирован.</td>
+        <td>Нажать «Скачать результат».</td>
+      </tr>
+      <tr>
+        <td><span class="badge error">ошибка</span></td>
+        <td>Обработка прервалась. Причина выводится текстом под статусом.</td>
+        <td>См. раздел «Частые вопросы и ошибки».</td>
+      </tr>
+    </table>
+    <p class="muted">
+      Во время обработки показывается «бегущая» полоса, а не процент выполнения: сервис не
+      сообщает промежуточный прогресс, и точный процент был бы вымышленным.
+    </p>
+  </section>
+
+  <section id="result">
+    <h2>6. Что внутри файла результата</h2>
+    <p>
+      Формат результата зависит от формата исходного файла клиента.
+    </p>
+
+    <h3>Если клиент прислал Excel (.xlsx / .xls)</h3>
+    <p>Вы получаете копию исходного файла, в которой:</p>
+    <ul>
+      <li>
+        <strong>лист «Результат»</strong> — полный ответ в едином табличном виде:
+        <em>Требование клиента · Покрытие по программе · Статус · Комментарий</em>. Этот лист
+        формируется всегда и содержит все строки ответа целиком;
+      </li>
+      <li>
+        <strong>исходные листы клиента</strong> — в них дополнительно заполняются три колонки
+        (покрытие, статус, комментарий) напротив соответствующих строк;
+      </li>
+      <li>
+        <strong>лист «Резюме»</strong> — краткий вывод по программе, если модель его сформировала.
+      </li>
+    </ul>
+    <div class="note">
+      <strong>Почему два представления.</strong> Проставление ответов в шаблон клиента опирается на
+      сопоставление строк по тексту. На нестандартных или повреждённых шаблонах часть строк может не
+      найтись. Лист «Результат» от этого не зависит — на нём ответ полный при любом качестве шаблона.
+      <strong>Если в исходных листах заполнено не всё — сверяйтесь с листом «Результат».</strong>
+    </div>
+
+    <h3>Если клиент прислал Word или PDF</h3>
+    <p>
+      Вы получаете новый документ Word с таблицей ответа (те же четыре колонки) и разделом
+      «Резюме». Исходный документ при этом не изменяется.
+    </p>
+
+    <p class="muted">
+      Имя файла результата — имя исходного файла с суффиксом <code>_ответ</code>,
+      например <code>client_ответ.xlsx</code>.
+    </p>
+  </section>
+
+  <section id="normative">
+    <h2>7. Нормативная база</h2>
+    <p>
+      Если вы загрузили свой файл нормативной базы, в работу берётся <strong>только он</strong> —
+      посторонние документы, база по умолчанию и файлы других пользователей в обработку не попадают.
+    </p>
+    <p>
+      Если поле оставлено пустым, используется общая база по умолчанию, заложенная в сервис.
+      Она одинакова для всех пользователей.
+    </p>
+    <div class="note">
+      Загруженная вами база действует <strong>только на эту обработку</strong>. Она не заменяет
+      базу по умолчанию и никак не влияет на обработки других пользователей.
+    </div>
+  </section>
+
+  <section id="formats">
+    <h2>8. Форматы файлов</h2>
+    <table>
+      <tr><th>Поле</th><th>Допустимые форматы</th></tr>
+      <tr>
+        <td>Файл клиента</td>
+        <td><code>.xlsx</code>, <code>.xls</code>, <code>.docx</code>, <code>.doc</code>, <code>.pdf</code></td>
+      </tr>
+      <tr>
+        <td>Нормативная база</td>
+        <td><code>.xlsx</code>, <code>.xls</code>, <code>.docx</code>, <code>.doc</code>, <code>.pdf</code>, <code>.md</code>, <code>.txt</code></td>
+      </tr>
+    </table>
+    <p class="muted">
+      Старый бинарный формат <code>.doc</code> (Word 97–2003) читается ненадёжно — если обработка
+      завершилась ошибкой разбора, пересохраните файл в <code>.docx</code>.
+    </p>
+  </section>
+
+  <section id="faq">
+    <h2>9. Частые вопросы и ошибки</h2>
+
+    <div class="faq">
+      <div class="q">Статус долго не уходит из «в очереди»</div>
+      <div class="a">
+        <p>
+          Задача принята, но её никто не разбирает — как правило, остановлен фоновый обработчик
+          на сервере. Сообщите администратору сервиса: это не решается на стороне пользователя.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <div class="q">Статус «ошибка», в тексте упоминается модель или таймаут</div>
+      <div class="a">
+        <p>
+          Сервис не смог получить ответ от языковой модели: она недоступна, перегружена или
+          запрос превысил отведённое время. Попробуйте запустить обработку повторно; если
+          повторяется — обратитесь к администратору и передайте текст ошибки со страницы.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <div class="q">Статус «ошибка» сразу после запуска</div>
+      <div class="a">
+        <p>
+          Обычно это нечитаемый или повреждённый файл. Проверьте, что файл открывается в Excel или
+          Word, имеет поддерживаемый формат и не защищён паролем. Файлы <code>.doc</code> и
+          отсканированные PDF (изображения без текстового слоя) — частая причина.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <div class="q">В результате заполнены не все строки исходного листа</div>
+      <div class="a">
+        <p>
+          Значит, для части строк не сработало сопоставление по тексту (нестандартная структура
+          шаблона, объединённые ячейки, нетипичные формулировки). Полный ответ по всем строкам
+          всегда есть на отдельном листе <strong>«Результат»</strong>.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <div class="q">Обработка идёт очень долго</div>
+      <div class="a">
+        <p>
+          Время растёт пропорционально объёму документа: каждый раздел — отдельный запрос к модели.
+          Чтобы быстро проверить корректность на большом файле, укажите в поле
+          «Максимум разделов» небольшое число (например, <code>3</code>) и запустите пробную
+          обработку.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq info">
+      <div class="q">Я вижу чужие обработки в списке «Мои сессии»</div>
+      <div class="a">
+        <p>
+          Это ожидаемо на текущем этапе внедрения: авторизация ещё не подключена, и все работают
+          под общей учётной записью. После подключения корпоративного входа список станет
+          персональным.
+        </p>
+      </div>
+    </div>
+
+    <div class="faq info">
+      <div class="q">Что передать в поддержку при обращении</div>
+      <div class="a">
+        <p>
+          Ссылку на страницу обработки (адрес вида <code>/sessions/…</code>), точный текст ошибки
+          со страницы, имя и формат исходного файла, а также примерное время запуска. Этого
+          достаточно, чтобы найти обработку в журналах сервиса.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    ДМС-ассистент · руководство пользователя веб-версии
+  </footer>
+
+</div>
+</body>
+</html>

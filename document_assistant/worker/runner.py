@@ -17,7 +17,11 @@ import logging
 import signal
 
 from document_assistant.core.logging_config import setup_logging
-from document_assistant.core.settings import settings, warn_if_state_not_shared
+from document_assistant.core.settings import (
+    active_model_endpoint,
+    settings,
+    warn_if_state_not_shared,
+)
 from document_assistant.db.engine import (
     async_session_factory,
     dispose_engine,
@@ -57,7 +61,7 @@ class Worker:
             "Конфигурация воркера: "
             f"БД={masked_database_url()}, "
             f"хранилище={settings.storage_dir}, "
-            f"модель={settings.qwen_api_url or '<не задан QWEN_API_URL>'}, "
+            f"модель={settings.ai_provider or '<AI_PROVIDER не задан>'} → {active_model_endpoint()}, "
             f"опрос очереди раз в {settings.worker_poll_interval} сек")
         warn_if_state_not_shared()
 
