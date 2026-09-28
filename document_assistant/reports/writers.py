@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -32,6 +33,14 @@ _STATUS_FILL = {
 
 def _status_fill(status: str) -> str:
     return _STATUS_FILL.get(status.lower().strip(), "FFFFFF")
+
+
+# Маркеры списка в начале ячейки: шаблоны часто вставлены из Word, где пункт
+# выглядит как "·" + пачка неразрывных пробелов.
+_LIST_MARKER = re.compile(r"^[·•▪◦●\-–—*]+\s*")
+# Сокращение в конце требования: модель пишет "начало текста; ..." вместо
+# полного текста длинной ячейки.
+_TRAILING_ELLIPSIS = re.compile(r"[\s;,:]*(?:\.\.\.|…)\s*$")
 
 
 # ── Abstract base ─────────────────────────────────────────────────────────────
@@ -76,16 +85,19 @@ class ExcelReportWriter(ReportWriter):
         return output_path
 
     def _write_annotated(self, report: InsuranceReport, output_path: Path, source_path: Path) -> Path:
-        """Copy source file and write 3 annotation columns to all sheets.
+        """Copy source file and write 3 annotation columns next to the client's data.
 
-        Rows are matched by text content across all worksheets so that:
-        - rows skipped/merged by the LLM do not shift subsequent annotations
-        - multi-sheet Excel files are handled correctly
+        - Колонки ответа ставятся ПОСЛЕ последнего заполненного столбца листа:
+          в шаблоне клиента могут быть свои данные (например «комментарии ВСК»),
+          затирать их нельзя.
+        - Сопоставление последовательное: ответы модели идут в порядке документа,
+          поэтому каждое требование сначала ищется ниже предыдущего найденного.
+          Иначе одинаковые подзаголовки в разных разделах («Предоставляемые
+          услуги:», «Не оказываются:») все указывали бы на первое вхождение.
         """
         shutil.copy2(source_path, output_path)
         wb = load_workbook(output_path)
 
-        ann_col = 2
         new_headers = ["Покрытие по программе", "Статус", "Комментарий"]
 
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -95,33 +107,36 @@ class ExcelReportWriter(ReportWriter):
         thin = Side(style="thin", color="CCCCCC")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        # Build global index across ALL sheets: norm_text → (worksheet, row_idx)
-        global_index: dict[str, tuple] = {}
-        total_source_rows = 0
+        # Первая свободная колонка каждого листа — считается до любых записей.
+        ann_cols = {id(ws): self._last_used_column(ws) + 1 for ws in wb.worksheets}
+
+        # Все строки-кандидаты в порядке документа (лист за листом, сверху вниз).
+        # Одинаковые тексты НЕ схлопываются — у каждого вхождения своя позиция.
+        candidates: list[tuple[str, tuple]] = []
         for ws in wb.worksheets:
             for row_idx in range(2, ws.max_row + 1):
                 val = ws.cell(row=row_idx, column=1).value
                 if val:
                     key = self._norm(str(val))
-                    if key not in global_index:  # first sheet wins on collision
-                        global_index[key] = (ws, row_idx)
-                        total_source_rows += 1
+                    if key:
+                        candidates.append((key, (ws, row_idx)))
 
-        # Write each LLM response to its matched sheet+row
-        # used_locations tracks already-annotated rows to prevent double-writes
         matched = 0
-        used_locations: set = set()
+        unmatched: list[str] = []
+        used: set[int] = set()
+        cursor = -1
         sheets_touched: set = set()
         for row in report.rows:
-            result = self._find_row_global(row.client_requirement, global_index)
-            if result is None:
+            pos = self._find_row(row.client_requirement, candidates, used, cursor)
+            if pos is None:
+                if row.client_requirement.strip():
+                    unmatched.append(row.client_requirement)
                 continue
-            ws, row_idx = result
-            loc_key = (id(ws), row_idx)
-            if loc_key in used_locations:
-                continue
-            used_locations.add(loc_key)
+            used.add(pos)
+            cursor = pos
             matched += 1
+            ws, row_idx = candidates[pos][1]
+            ann_col = ann_cols[id(ws)]
             sheets_touched.add(ws)
 
             cov_cell = ws.cell(row=row_idx, column=ann_col)
@@ -145,9 +160,9 @@ class ExcelReportWriter(ReportWriter):
 
         # Add annotation headers to every sheet that received annotations
         for ws in sheets_touched:
+            ann_col = ann_cols[id(ws)]
             for i, title in enumerate(new_headers):
-                col = ann_col + i
-                cell = ws.cell(row=1, column=col)
+                cell = ws.cell(row=1, column=ann_col + i)
                 if isinstance(cell, MergedCell):
                     continue
                 cell.value = title
@@ -158,8 +173,10 @@ class ExcelReportWriter(ReportWriter):
 
         logger.info(
             f"Аннотировано {matched}/{len(report.rows)} строк LLM "
-            f"из {total_source_rows} строк оригинала "
-            f"({len(sheets_touched)} лист(ов))")
+            f"из {len(candidates)} строк оригинала "
+            f"({len(sheets_touched)} лист(ов)); не найдено в шаблоне: {len(unmatched)}")
+        for text in unmatched:
+            logger.debug(f"Не найдено в шаблоне: {text[:150]!r}")
 
         # Всегда добавляем полный ответ отдельным листом, независимо от того,
         # насколько удачно он лёг в шаблон клиента: сопоставление строк по
@@ -192,74 +209,111 @@ class ExcelReportWriter(ReportWriter):
         return f"{base} ({i})"
 
     @staticmethod
+    def _last_used_column(ws) -> int:
+        """Последний столбец, где есть хоть одно значение (0 — лист пуст).
+
+        ``ws.max_column`` не подходит: он учитывает и столбцы, где есть только
+        форматирование, и тогда ответ уехал бы далеко вправо.
+        """
+        last = 0
+        for row in ws.iter_rows(values_only=True):
+            for col_idx in range(len(row), 0, -1):
+                if row[col_idx - 1] not in (None, ""):
+                    last = max(last, col_idx)
+                    break
+        return last
+
+    @staticmethod
     def _norm(text: str) -> str:
-        """Normalise requirement text for matching: lowercase, collapse spaces."""
-        return " ".join(text.lower().split())
+        """Lowercase, collapse whitespace (incl. nbsp), drop a leading list marker."""
+        text = " ".join(text.lower().split())
+        return _LIST_MARKER.sub("", text)
 
     @staticmethod
     def _words(text: str) -> set[str]:
-        import re as _re
-        return set(w for w in _re.split(r"\W+", text.lower()) if len(w) > 2)
+        return set(w for w in re.split(r"\W+", text.lower()) if len(w) > 2)
 
-    def _find_row_global(self, requirement: str, index: dict[str, tuple]) -> tuple | None:
-        """Find (worksheet, row_idx) by exact, suffix, prefix, or word-overlap match.
+    def _find_row(
+        self,
+        requirement: str,
+        candidates: list[tuple[str, tuple]],
+        used: set[int],
+        cursor: int,
+    ) -> int | None:
+        """Позиция строки шаблона для требования или None.
 
-        Matching levels (first hit wins):
+        Сначала ищем среди свободных строк ПОСЛЕ ``cursor`` (последней найденной),
+        и только если там нет — среди всех свободных. Ответы модели идут в
+        порядке документа, так что это разводит одинаковые тексты по разделам
+        и не даёт похожей фразе «прилипнуть» к чужому разделу выше.
+        """
+        free = [(pos, key) for pos, (key, _) in enumerate(candidates) if pos not in used]
+        ahead = [(pos, key) for pos, key in free if pos > cursor]
+        found = self._match(requirement, ahead)
+        if found is None:
+            found = self._match(requirement, free)
+        return found
+
+    def _match(self, requirement: str, pool: list[tuple[int, str]]) -> int | None:
+        """Match levels (first hit wins, in document order within each level):
+
         1. Exact — normalized strings are equal.
-        2. Suffix — source key is the trailing part of the LLM key, separated by
-           a punctuation char.  Handles the common case where the LLM prepends
-           a section-header context to the actual sub-item text, e.g.
-           LLM: "Первичный…приёмы: аллерголог-иммунолог"
-           Source: "аллерголог-иммунолог"
-        3. Prefix — one string is a prefix of the other (LLM truncation).
-        4. Word-overlap ≥ 75 % — only for pairs whose word-count ratio is ≤ 3:1
+        2. Abbreviated — the LLM cut a long cell and ended it with "..." / "…";
+           the source must start with the remaining text.
+        3. Suffix — source key is the trailing part of the LLM key, separated by
+           a punctuation char (LLM prepended section context), e.g.
+           LLM: "Первичный…приёмы: аллерголог-иммунолог" / Source: "аллерголог-иммунолог".
+        4. Prefix — source starts with the LLM key (LLM truncated without "...").
+        5. Word-overlap ≥ 75 % — only for pairs whose word-count ratio is ≤ 3:1
            to avoid false positives from long shared prefixes.
         """
         key = self._norm(requirement)
+        abbreviated = False
+        while _TRAILING_ELLIPSIS.search(key):
+            key = _TRAILING_ELLIPSIS.sub("", key)
+            abbreviated = True
         if not key or len(key) < 5:
             return None
 
-        # 1. Exact match
-        if key in index:
-            return index[key]
+        for pos, orig in pool:
+            if orig == key:
+                return pos
 
-        # 2. Suffix match: source row is a trailing portion of the LLM key
-        #    Threshold ≥ 6 catches short specialist names (e.g. "невролог" = 8 chars)
-        for orig_key, location in index.items():
-            if len(orig_key) >= 6 and len(orig_key) < len(key):
-                if key.endswith(orig_key):
-                    sep_idx = len(key) - len(orig_key) - 1
-                    if sep_idx < 0 or key[sep_idx] in (' ', ':', ',', ';', '.'):
-                        return location
+        if abbreviated and len(key) >= 10:
+            for pos, orig in pool:
+                if orig.startswith(key):
+                    return pos
 
-        # 3. Prefix match — only the direction where LLM truncated the source row
-        #    (orig starts with key).  The reverse direction (key starts with orig)
-        #    is excluded: that case means the LLM prepended section context, which
-        #    is already handled by the suffix match above.
-        for orig_key, location in index.items():
-            if orig_key.startswith(key) and len(key) >= 10:
-                return location
+        # Threshold ≥ 6 catches short specialist names (e.g. "невролог" = 8 chars)
+        for pos, orig in pool:
+            if 6 <= len(orig) < len(key) and key.endswith(orig):
+                sep_idx = len(key) - len(orig) - 1
+                if sep_idx < 0 or key[sep_idx] in (" ", ":", ",", ";", "."):
+                    return pos
 
-        # 4. Word-overlap ≥ 75 % — skip pairs where one text has 3× more words
-        #    than the other; those share a common prefix and would cause false matches
+        # Only the direction where the LLM truncated the source row; the reverse
+        # (LLM prepended context) is covered by the suffix level above.
+        if len(key) >= 10:
+            for pos, orig in pool:
+                if orig.startswith(key):
+                    return pos
+
         key_words = self._words(key)
         if len(key_words) < 3:
             return None
-        best_score, best_loc = 0.0, None
-        for orig_key, location in index.items():
-            orig_words = self._words(orig_key)
+        best_score, best_pos = 0.0, None
+        for pos, orig in pool:
+            orig_words = self._words(orig)
             if not orig_words:
                 continue
             shorter = min(len(key_words), len(orig_words))
-            longer  = max(len(key_words), len(orig_words))
-            if longer > 3 * shorter:   # extreme length mismatch → skip
+            longer = max(len(key_words), len(orig_words))
+            if longer > 3 * shorter:
                 continue
             overlap = len(key_words & orig_words) / shorter
             if overlap > best_score:
-                best_score, best_loc = overlap, location
-        if best_score >= 0.75:
-            return best_loc
-        return None
+                best_score, best_pos = overlap, pos
+        return best_pos if best_score >= 0.75 else None
 
     def _write_header_row(self, ws) -> None:
         header_font = Font(bold=True, color="FFFFFF", size=11)
