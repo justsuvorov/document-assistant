@@ -43,7 +43,8 @@ def register_oauth_client() -> None:
         server_metadata_url=settings.keycloak_metadata_url,
         client_id=settings.keycloak_client_id,
         client_secret=settings.keycloak_client_secret.get_secret_value(),
-        client_kwargs={"scope": "openid profile email"},
+        # verify уходит в httpx-клиент authlib: discovery и обмен code на токен.
+        client_kwargs={"scope": "openid profile email", "verify": settings.keycloak_verify_ssl},
     )
 
 
@@ -76,7 +77,7 @@ class JWKSCache:
         return self._keys
 
     async def _fetch(self) -> dict:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=settings.keycloak_verify_ssl) as client:
             meta = (await client.get(settings.keycloak_metadata_url)).json()
             return (await client.get(meta["jwks_uri"])).json()
 

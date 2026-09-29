@@ -31,6 +31,8 @@ def _log_effective_config() -> None:
         f"модель={settings.ai_provider or '<AI_PROVIDER не задан>'} → {active_model_endpoint()}, "
         f"нормативка={settings.normative_base}, "
         f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}")
+    if not settings.auth_disabled and not settings.keycloak_verify_ssl:
+        logger.warning("KEYCLOAK_VERIFY_SSL=false — TLS-сертификат Keycloak не проверяется")
     warn_if_state_not_shared()
 
 

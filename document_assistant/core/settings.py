@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     keycloak_realm: str = Field("", alias="KEYCLOAK_REALM")
     keycloak_client_id: str = Field("", alias="KEYCLOAK_CLIENT_ID")
     keycloak_client_secret: SecretStr = Field(SecretStr(""), alias="KEYCLOAK_CLIENT_SECRET")
+    # false — не проверять TLS-сертификат Keycloak (самоподписанный/внутренний CA).
+    keycloak_verify_ssl: bool = Field(True, alias="KEYCLOAK_VERIFY_SSL")
     # Секрет подписи cookie-сессии. В проде задать явно.
     session_secret: SecretStr = Field(SecretStr("dev-insecure-session-secret"), alias="SESSION_SECRET")
     session_cookie_name: str = Field("da_session", alias="SESSION_COOKIE_NAME")
