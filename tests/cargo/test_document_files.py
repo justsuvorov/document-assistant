@@ -58,3 +58,31 @@ class TestOtherExclusions:
         d = tmp_path / "ДС 1.docx"
         d.mkdir()
         assert is_supported_document(d) is False
+
+
+class TestPreviousReportsAreNotInput:
+    """The report «200 – результат проверки.xlsx» is written into the same
+    «Декларации» folder it came from. On a second run the folder scan picked
+    it up as another declaration and the service reconciled its own output."""
+
+    def test_report_is_treated_as_generated(self):
+        assert is_generated_artifact(Path("200 – результат проверки.xlsx")) is True
+
+    def test_report_is_not_a_supported_input(self, tmp_path: Path):
+        assert is_supported_document(_touch(tmp_path / "200 – результат проверки.xlsx")) is False
+
+    def test_declaration_itself_still_is(self, tmp_path: Path):
+        assert is_supported_document(_touch(tmp_path / "200.xlsx")) is True
+
+    def test_declaration_discovery_skips_previous_reports(self, tmp_path: Path):
+        from document_assistant.cargo.declaration_discovery import DeclarationDiscovery
+
+        decl_dir = tmp_path / "Декларации" / "2026-08"
+        decl_dir.mkdir(parents=True)
+        for name in ("35.xlsx", "35 – результат проверки.xlsx",
+                     "200.docx", "200 – результат проверки.xlsx"):
+            _touch(decl_dir / name)
+
+        found = [Path(p).name for p in DeclarationDiscovery.resolve(str(tmp_path), None)]
+
+        assert found == ["200.docx", "35.xlsx"]

@@ -17,6 +17,11 @@ from document_assistant.core.parsers import DataParser
 _TEMP_PREFIXES = ("~$", "~")
 # Our own debug/cache output, written next to each processed source.
 _GENERATED_SUFFIXES = ("_llm_debug.md", "_llm_output.json")
+# The reconciliation report itself: «200 – результат проверки.xlsx». It is
+# written into the same «Декларации» folder it was produced from, so on a
+# second run the folder scan picked it up as another declaration and the
+# service reconciled its own output.
+_RESULT_MARKER = "результат проверки"
 
 
 def is_office_temp(path: Path) -> bool:
@@ -24,7 +29,7 @@ def is_office_temp(path: Path) -> bool:
 
 
 def is_generated_artifact(path: Path) -> bool:
-    return path.name.endswith(_GENERATED_SUFFIXES)
+    return path.name.endswith(_GENERATED_SUFFIXES) or _RESULT_MARKER in path.stem.lower()
 
 
 def is_supported_document(path: Path) -> bool:
