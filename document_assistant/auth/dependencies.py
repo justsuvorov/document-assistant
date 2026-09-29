@@ -7,16 +7,23 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-from document_assistant.auth.keycloak import decode_token
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from document_assistant.auth.keycloak import TokenClaims
 from document_assistant.core.settings import settings
 
-ACCESS_COOKIE = "access_token"
-ID_TOKEN_COOKIE = "id_token"
+AUTH_COOKIE = "auth"
+# Старые cookie (до 0.9 там лежали сами токены Keycloak) — удаляем при входе/выходе.
+_LEGACY_COOKIES = ("access_token", "id_token")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,17 +54,30 @@ async def _user_from_request(request: Request) -> CurrentUser | None:
     if settings.auth_disabled:
         return _dev_user()
 
-    token = request.cookies.get(_cookie_name(ACCESS_COOKIE))
-    if not token:
+    # Причину отказа кладём в request.state — её пишет в лог обработчик
+    # RedirectToLogin. Без неё «бесконечный редирект на логин» не разобрать.
+    raw = request.cookies.get(_cookie_name(AUTH_COOKIE))
+    if not raw:
+        request.state.auth_reason = f"нет cookie {_cookie_name(AUTH_COOKIE)}"
         return None
     try:
-        claims = await decode_token(token)
-    except ValueError:
+        data = _serializer().loads(raw, max_age=settings.session_max_age_hours * 3600)
+    except SignatureExpired:
+        request.state.auth_reason = f"сессия старше {settings.session_max_age_hours} ч"
+        return None
+    except BadSignature:
+        # Подделка или сменился SESSION_SECRET (у подов разные значения?).
+        request.state.auth_reason = "неверная подпись cookie (SESSION_SECRET одинаков во всех подах?)"
+        logger.warning(f"{request.url.path}: {request.state.auth_reason}")
+        return None
+    if data.get("acl") != _access_policy_tag():
+        # Cookie выдана до смены KEYCLOAK_ALLOWED_* — пусть пройдёт проверку заново.
+        request.state.auth_reason = "изменились правила доступа, нужен повторный вход"
         return None
     return CurrentUser(
-        user_id=claims.sub,
-        user_name=claims.preferred_username or claims.email,
-        roles=tuple(claims.roles),
+        user_id=data["sub"],
+        user_name=data.get("name"),
+        roles=tuple(data.get("roles", ())),
     )
 
 
@@ -84,22 +104,43 @@ async def get_optional_user(request: Request) -> CurrentUser | None:
     return await _user_from_request(request)
 
 
-def set_auth_cookies(response: RedirectResponse, access_token: str, id_token: str | None) -> None:
-    common = {
-        "httponly": True,
-        "secure": settings.session_cookie_secure,
-        "samesite": "lax",
-        "path": "/",
-    }
-    response.set_cookie(_cookie_name(ACCESS_COOKIE), access_token, **common)
-    if id_token:
-        response.set_cookie(_cookie_name(ID_TOKEN_COOKIE), id_token, **common)
+def _serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.session_secret.get_secret_value(), salt="da-auth")
+
+
+def _access_policy_tag() -> str:
+    """Отпечаток KEYCLOAK_ALLOWED_GROUPS/ROLES: при их смене все входы сбрасываются."""
+    policy = f"{settings.keycloak_allowed_groups}|{settings.keycloak_allowed_roles}"
+    return hashlib.sha256(policy.encode()).hexdigest()[:12]
+
+
+def set_auth_cookie(response: RedirectResponse, claims: TokenClaims) -> None:
+    """Положить в cookie проверенного пользователя, а не токены Keycloak.
+
+    Токены Keycloak с ролями и группами весят несколько КБ: браузер молча не
+    сохраняет cookie больше 4 КБ (бесконечный редирект на логин), а nginx не
+    пропускает такие заголовки ответа (502). Токен проверяется один раз на
+    /auth/callback, дальше хватает подписанной SESSION_SECRET записи на ~200 Б.
+    """
+    value = _serializer().dumps({
+        "sub": claims.sub,
+        "name": claims.preferred_username or claims.email,
+        "acl": _access_policy_tag(),
+    })
+    response.set_cookie(
+        _cookie_name(AUTH_COOKIE), value,
+        max_age=settings.session_max_age_hours * 3600,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    for legacy in _LEGACY_COOKIES:
+        response.delete_cookie(_cookie_name(legacy), path="/")
+    logger.info(f"cookie авторизации: {len(value)} Б, срок {settings.session_max_age_hours} ч, "
+                f"secure={settings.session_cookie_secure}")
 
 
 def clear_auth_cookies(response: RedirectResponse) -> None:
-    response.delete_cookie(_cookie_name(ACCESS_COOKIE), path="/")
-    response.delete_cookie(_cookie_name(ID_TOKEN_COOKIE), path="/")
-
-
-def read_id_token(request: Request) -> str | None:
-    return request.cookies.get(_cookie_name(ID_TOKEN_COOKIE))
+    for name in (AUTH_COOKIE, *_LEGACY_COOKIES):
+        response.delete_cookie(_cookie_name(name), path="/")

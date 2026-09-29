@@ -96,20 +96,30 @@ class Settings(BaseSettings):
     keycloak_client_id: str = Field("", alias="KEYCLOAK_CLIENT_ID")
     keycloak_client_secret: SecretStr = Field(SecretStr(""), alias="KEYCLOAK_CLIENT_SECRET")
     # false — не проверять TLS-сертификат Keycloak (самоподписанный/внутренний CA).
-    keycloak_verify_ssl: bool = Field(True, alias="KEYCLOAK_VERIFY_SSL")
+    keycloak_verify_ssl: bool = Field(False, alias="KEYCLOAK_VERIFY_SSL")
+    # Кого пускать: через запятую. Пользователь проходит, если состоит ХОТЯ БЫ
+    # в одной группе ИЛИ имеет хотя бы одну роль (realm или клиента). Оба пустые —
+    # пускаем всех пользователей realm (на старте пишется WARNING).
+    # Группы попадают в токен только при mapper «Group Membership» (claim groups).
+    keycloak_allowed_groups: str = Field("", alias="KEYCLOAK_ALLOWED_GROUPS")
+    keycloak_allowed_roles: str = Field("", alias="KEYCLOAK_ALLOWED_ROLES")
     # Секрет подписи cookie-сессии. В проде задать явно.
     session_secret: SecretStr = Field(SecretStr("dev-insecure-session-secret"), alias="SESSION_SECRET")
     session_cookie_name: str = Field("da_session", alias="SESSION_COOKIE_NAME")
     session_cookie_secure: bool = Field(False, alias="SESSION_COOKIE_SECURE")
+    # Сколько живёт вход в приложение, после — снова через Keycloak (обычно без ввода пароля, по SSO).
+    session_max_age_hours: int = Field(8, alias="SESSION_MAX_AGE_HOURS")
 
     @property
-    def keycloak_metadata_url(self) -> str:
-        """OIDC discovery endpoint. Пустая строка, если Keycloak не сконфигурирован."""
+    def keycloak_oidc_base(self) -> str:
+        """{KEYCLOAK_URL}/realms/{REALM}/protocol/openid-connect — база эндпоинтов
+        Keycloak. Discovery (.well-known) не используем: в контуре он отдаёт 404.
+        Пустая строка, если Keycloak не сконфигурирован."""
         if not self.keycloak_url or not self.keycloak_realm:
             return ""
         return (
             f"{self.keycloak_url.rstrip('/')}/realms/{self.keycloak_realm}"
-            "/.well-known/openid-configuration"
+            "/protocol/openid-connect"
         )
 
     model_config = SettingsConfigDict(

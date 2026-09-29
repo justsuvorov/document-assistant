@@ -19,6 +19,7 @@ from document_assistant.db.engine import dispose_engine, init_db, masked_databas
 from document_assistant.storage import storage
 from document_assistant.web.api import router as api_router
 from document_assistant.web.pages import router as pages_router
+from document_assistant.web.request_log import RequestLogMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,25 @@ def _log_effective_config() -> None:
         f"модель={settings.ai_provider or '<AI_PROVIDER не задан>'} → {active_model_endpoint()}, "
         f"нормативка={settings.normative_base}, "
         f"auth={'ОТКЛЮЧЕНА' if settings.auth_disabled else 'Keycloak ' + (settings.keycloak_url or '<не задан>')}")
-    if not settings.auth_disabled and not settings.keycloak_verify_ssl:
-        logger.warning("KEYCLOAK_VERIFY_SSL=false — TLS-сертификат Keycloak не проверяется")
+    if not settings.auth_disabled:
+        logger.info(
+            "Keycloak: "
+            f"url={settings.keycloak_url or '<не задан>'}, "
+            f"realm={settings.keycloak_realm or '<не задан>'}, "
+            f"client_id={settings.keycloak_client_id or '<не задан>'}, "
+            f"client_secret={'задан' if settings.keycloak_client_secret.get_secret_value() else 'НЕ ЗАДАН'}, "
+            f"эндпоинты={settings.keycloak_oidc_base or '<нет>'}/{{auth,token,certs,logout}}, "
+            f"verify_ssl={settings.keycloak_verify_ssl}, "
+            f"cookie_secure={settings.session_cookie_secure}, "
+            f"session_secret={'дефолтный (НЕБЕЗОПАСНО)' if settings.session_secret.get_secret_value() == 'dev-insecure-session-secret' else 'задан'}")
+        if settings.keycloak_allowed_groups or settings.keycloak_allowed_roles:
+            logger.info(f"Доступ: группы={settings.keycloak_allowed_groups or '—'}, "
+                        f"роли={settings.keycloak_allowed_roles or '—'}")
+        else:
+            logger.warning("KEYCLOAK_ALLOWED_GROUPS и KEYCLOAK_ALLOWED_ROLES не заданы — "
+                           "доступ открыт ЛЮБОМУ пользователю realm")
+        if not settings.keycloak_verify_ssl:
+            logger.warning("KEYCLOAK_VERIFY_SSL=false — TLS-сертификат Keycloak не проверяется")
     warn_if_state_not_shared()
 
 
@@ -77,6 +95,9 @@ app.add_middleware(
     same_site="lax",
 )
 
+# Последним — значит, самым внешним: логирует запрос до всех остальных слоёв.
+app.add_middleware(RequestLogMiddleware)
+
 app.include_router(auth_router)
 app.include_router(api_router)
 app.include_router(pages_router)
@@ -85,6 +106,8 @@ app.include_router(pages_router)
 @app.exception_handler(RedirectToLogin)
 async def redirect_to_login(request: Request, exc: RedirectToLogin):
     """Неавторизованный пользователь на HTML-странице уходит на логин."""
+    reason = getattr(request.state, "auth_reason", "не указана")
+    logger.info(f"{request.url.path}: нет авторизации ({reason}) → редирект на /auth/login")
     return RedirectResponse(url="/auth/login", status_code=302)
 
 

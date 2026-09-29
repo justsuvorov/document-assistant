@@ -7,8 +7,9 @@
 
 from __future__ import annotations
 
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 from authlib.integrations.starlette_client import OAuth
@@ -19,12 +20,14 @@ from document_assistant.core.settings import settings
 
 _OIDC_NAME = "keycloak"
 
+logger = logging.getLogger(__name__)
+
 oauth = OAuth()
 
 
 def keycloak_configured() -> bool:
     return bool(
-        settings.keycloak_metadata_url
+        settings.keycloak_oidc_base
         and settings.keycloak_client_id
         and settings.keycloak_client_secret.get_secret_value()
     )
@@ -38,9 +41,13 @@ def register_oauth_client() -> None:
     """
     if not keycloak_configured() or _OIDC_NAME in oauth._registry:
         return
+    base = settings.keycloak_oidc_base
     oauth.register(
         name=_OIDC_NAME,
-        server_metadata_url=settings.keycloak_metadata_url,
+        # Эндпоинты задаём явно, без discovery (.well-known в контуре — 404).
+        authorize_url=f"{base}/auth",
+        access_token_url=f"{base}/token",
+        jwks_uri=f"{base}/certs",
         client_id=settings.keycloak_client_id,
         client_secret=settings.keycloak_client_secret.get_secret_value(),
         # verify уходит в httpx-клиент authlib: discovery и обмен code на токен.
@@ -59,6 +66,7 @@ class TokenClaims:
     preferred_username: str | None
     email: str | None
     roles: list[str]
+    groups: list[str] = field(default_factory=list)
 
 
 class JWKSCache:
@@ -77,9 +85,13 @@ class JWKSCache:
         return self._keys
 
     async def _fetch(self) -> dict:
+        url = f"{settings.keycloak_oidc_base}/certs"
         async with httpx.AsyncClient(timeout=10, verify=settings.keycloak_verify_ssl) as client:
-            meta = (await client.get(settings.keycloak_metadata_url)).json()
-            return (await client.get(meta["jwks_uri"])).json()
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+        logger.info(f"JWKS загружен: {url}, ключей={len(data.get('keys', []))}")
+        return data
 
 
 _jwks = JWKSCache()
@@ -107,8 +119,44 @@ async def decode_token(token: str) -> TokenClaims:
         sub=sub,
         preferred_username=claims.get("preferred_username") or claims.get("name"),
         email=claims.get("email"),
-        roles=list(claims.get("realm_access", {}).get("roles", [])),
+        # Роли realm + роли нашего клиента: их назначают в разных местах Keycloak.
+        roles=list(claims.get("realm_access", {}).get("roles", []))
+        + list(claims.get("resource_access", {}).get(settings.keycloak_client_id, {}).get("roles", [])),
+        groups=list(claims.get("groups") or []),
     )
+
+
+def _split(value: str) -> set[str]:
+    return {v.strip().strip("/").casefold() for v in value.split(",") if v.strip().strip("/")}
+
+
+def access_denied_reason(claims: TokenClaims) -> str | None:
+    """None — пускаем; иначе причина отказа для лога.
+
+    Группа в токене приходит как путь («/ДМС/dms-assistant») или как имя —
+    сравниваем и с полным путём, и с последним сегментом, без учёта регистра.
+    """
+    need_groups = _split(settings.keycloak_allowed_groups)
+    need_roles = _split(settings.keycloak_allowed_roles)
+    if not need_groups and not need_roles:
+        return None
+
+    user_groups: set[str] = set()
+    for g in claims.groups:
+        path = g.strip().strip("/").casefold()
+        user_groups |= {path, path.rsplit("/", 1)[-1]}
+    user_roles = {r.casefold() for r in claims.roles}
+
+    if need_groups & user_groups or need_roles & user_roles:
+        return None
+
+    reason = (f"нет разрешённой группы {sorted(need_groups) or '—'} "
+              f"или роли {sorted(need_roles) or '—'}; "
+              f"группы в токене: {claims.groups or 'нет'}")
+    if need_groups and not claims.groups:
+        reason += (" — claim groups пуст: в Keycloak не настроен mapper «Group Membership» "
+                   "для клиента или пользователь не состоит ни в одной группе")
+    return reason
 
 
 async def _decode_with_jwks(token: str, force_refresh: bool) -> dict:
@@ -122,10 +170,7 @@ async def _decode_with_jwks(token: str, force_refresh: bool) -> dict:
 
 def logout_url(post_logout_redirect_uri: str, id_token: str | None = None) -> str:
     """URL end_session Keycloak — гасит SSO-сессию, а не только нашу cookie."""
-    base = (
-        f"{settings.keycloak_url.rstrip('/')}/realms/{settings.keycloak_realm}"
-        "/protocol/openid-connect/logout"
-    )
+    base = f"{settings.keycloak_oidc_base}/logout"
     params = [f"post_logout_redirect_uri={post_logout_redirect_uri}"]
     if id_token:
         params.append(f"id_token_hint={id_token}")
