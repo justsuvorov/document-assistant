@@ -182,6 +182,27 @@ class Word(Parser):
         self._table_extractor = WordTableExtractor()
 
     def read_document(self, file_path: str) -> str:
+        try:
+            return self._read_docx(file_path)
+        except Exception:
+            # Either a legacy binary .doc, or a .docx with the wrong
+            # extension. python-docx fails fast on the former, so fall back
+            # to converting through the local Word installation.
+            from document_assistant.core.legacy_word import LegacyWordConverter
+
+            converter = LegacyWordConverter()
+            converted = converter.convert_to_docx(file_path)
+            try:
+                print(
+                    f"[INFO] {Path(file_path).name}: старый формат .doc — "
+                    f"прочитан через конвертацию в .docx",
+                    flush=True,
+                )
+                return self._read_docx(converted)
+            finally:
+                converter.cleanup(converted)
+
+    def _read_docx(self, file_path: str) -> str:
         doc = Document(file_path)
         parts = []
 

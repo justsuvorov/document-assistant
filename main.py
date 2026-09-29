@@ -164,6 +164,26 @@ def reconcile(request: ReconcileRequest):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    # Refuse to reconcile against a matrix that is missing the general policy:
+    # it would contain only ДС amendments, and every declaration would be
+    # checked against clauses with no base text. The resulting report looks
+    # normal, which is what makes it dangerous.
+    if not matrix.policy_processed:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Генеральный полис не удалось обработать, матрица правил собрана без него — "
+                "сверка отменена, чтобы не выдать недостоверный результат. "
+                "Причина: " + "; ".join(matrix.failed_sources)
+            ),
+        )
+    if matrix.failed_sources:
+        print(
+            f"[WARN] Сверка выполняется без {len(matrix.failed_sources)} ДС — "
+            f"их правки в матрицу не вошли: {'; '.join(matrix.failed_sources)}",
+            flush=True,
+        )
+
     declaration_paths = DeclarationDiscovery.resolve(request.policy_folder, request.declaration_paths)
     if not declaration_paths:
         raise HTTPException(

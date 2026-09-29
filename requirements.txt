@@ -7,3 +7,5 @@ openpyxl
 xlrd
 python-docx
 pdfplumber
+# Чтение генеральных полисов в старом формате .doc через Word (только Windows)
+pywin32

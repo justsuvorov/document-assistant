@@ -45,5 +45,15 @@ class RulesMatrixService:
 
         matrix = self._builder.build(policy_folder, sources)
         matrix.fingerprint = fingerprint
-        self._cache.save(policy_folder, matrix)
+        if matrix.is_complete:
+            self._cache.save(policy_folder, matrix)
+        else:
+            # Caching an incomplete matrix would make the next run reuse it
+            # as if it were good — and that run would show «взята из кэша»,
+            # hiding the original failure entirely.
+            print(
+                "[WARN] Матрица неполная — в кэш не сохранена, "
+                "следующий запуск соберёт её заново",
+                flush=True,
+            )
         return matrix, False

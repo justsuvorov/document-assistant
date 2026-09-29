@@ -62,8 +62,12 @@ class NormativeIndex:
     def retrieve(self, query: str, budget_chars: int) -> str:
         """Return the most relevant sections that fit within budget_chars."""
         query_tokens = _tokenize(query)
+        # Score title together with content: for a numbered one-line section
+        # («7. Проверка перевозчика …») the splitter puts everything in the
+        # title and leaves content empty, so scoring content alone gave every
+        # such section a flat zero and the ranking became arbitrary.
         scored = [
-            (sec, self._score(sec.content, query_tokens))
+            (sec, self._score(f"{sec.title}\n{sec.content}", query_tokens))
             for sec in self._sections
         ]
         scored.sort(key=lambda x: -x[1])

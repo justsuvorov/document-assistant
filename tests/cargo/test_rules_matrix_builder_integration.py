@@ -102,3 +102,95 @@ class TestUnreadableSourceResilience:
 
         with pytest.raises(RuntimeError, match="Не удалось обработать ни один документ"):
             RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)
+
+
+class TestIncompleteMatrixIsFlagged:
+    """A matrix missing the general policy holds only ДС amendments, so every
+    declaration gets reconciled against clauses with no base text. The report
+    then looks normal while being meaningless — the worst failure mode, and
+    exactly what happened in production when a .doc policy failed to parse.
+    """
+
+    def _layout_with_broken_policy(self, tmp_path: Path) -> list[PolicySource]:
+        (tmp_path / "ГП полис.docx").write_text("not a real docx", encoding="utf-8")
+        d = Document()
+        d.add_paragraph("ДС 1.")
+        d.save(tmp_path / "ДС - 1.docx")
+        return [
+            PolicySource(kind="policy", file_path=str(tmp_path / "ГП полис.docx")),
+            PolicySource(kind="ds", file_path=str(tmp_path / "ДС - 1.docx"), ds_number=1),
+        ]
+
+    def test_policy_failure_marks_matrix_incomplete(self, tmp_path: Path):
+        sources = self._layout_with_broken_policy(tmp_path)
+
+        matrix = RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)
+
+        assert matrix.policy_processed is False
+        assert matrix.is_complete is False
+        assert len(matrix.clauses) == 1          # ДС still processed
+
+    def test_ds_failure_alone_keeps_policy_flag_true(self, tmp_path: Path):
+        d = Document()
+        d.add_paragraph("Условия генерального полиса.")
+        d.save(tmp_path / "ГП полис.docx")
+        (tmp_path / "ДС - 1.docx").write_text("not a real docx", encoding="utf-8")
+
+        sources = [
+            PolicySource(kind="policy", file_path=str(tmp_path / "ГП полис.docx")),
+            PolicySource(kind="ds", file_path=str(tmp_path / "ДС - 1.docx"), ds_number=1),
+        ]
+
+        matrix = RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)
+
+        assert matrix.policy_processed is True
+        assert matrix.is_complete is False       # ДС loss is still reported
+        assert len(matrix.failed_sources) == 1
+
+    def test_fully_successful_build_is_complete(self, tmp_path: Path):
+        _make_policy_layout(tmp_path)
+        sources = PolicyFolderScanner().scan(str(tmp_path))
+
+        matrix = RulesMatrixBuilder(model=StubMatrixModel()).build(str(tmp_path), sources)
+
+        assert matrix.is_complete is True
+        assert matrix.failed_sources == []
+
+
+class TestChunkSizeCap:
+    """DocumentChunker splits by structure and ignores size: a policy of
+    three large numbered sections went to the model as three huge requests,
+    and the gateway answered 500 to them (29 times in one production log).
+    """
+
+    def test_oversized_chunks_are_split(self):
+        chunks = [f"{i}. Раздел {i}\n" + "строка текста полиса\n" * 3000 for i in (1, 2, 3)]
+
+        capped = RulesMatrixBuilder._cap_chunk_size(chunks, 20_000)
+
+        assert len(capped) > len(chunks)
+        assert max(len(c) for c in capped) <= 20_000
+
+    def test_no_text_is_lost(self):
+        chunks = [f"{i}. Раздел {i}\n" + "строка текста полиса\n" * 3000 for i in (1, 2, 3)]
+
+        capped = RulesMatrixBuilder._cap_chunk_size(chunks, 20_000)
+
+        assert "".join(capped) == "".join(chunks)
+
+    def test_splits_on_line_boundaries(self):
+        """A clause cut mid-line would reach the model as broken text."""
+        chunks = ["строка полиса номер один\n" * 2000]
+
+        capped = RulesMatrixBuilder._cap_chunk_size(chunks, 5_000)
+
+        for part in capped[:-1]:
+            assert part.endswith("\n")
+
+    def test_small_chunks_pass_through_untouched(self):
+        chunks = ["1. Короткий раздел", "2. Ещё один"]
+        assert RulesMatrixBuilder._cap_chunk_size(chunks, 20_000) == chunks
+
+    def test_zero_limit_disables_capping(self):
+        chunks = ["x" * 100_000]
+        assert RulesMatrixBuilder._cap_chunk_size(chunks, 0) == chunks

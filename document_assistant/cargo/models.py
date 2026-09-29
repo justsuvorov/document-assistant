@@ -45,6 +45,16 @@ class RulesMatrix:
     fingerprint: str = ""
     built_at: str = ""
     clauses: list[PolicyClause] = field(default_factory=list)
+    # Sources that could not be read. A matrix missing the general policy
+    # holds only ДС amendments, so declarations get reconciled against
+    # clauses that have no base text — the report then looks normal while
+    # being meaningless. Callers must refuse to use such a matrix.
+    policy_processed: bool = True
+    failed_sources: list[str] = field(default_factory=list)
+
+    @property
+    def is_complete(self) -> bool:
+        return self.policy_processed and not self.failed_sources
 
     def to_prompt_block(self) -> str:
         if not self.clauses:

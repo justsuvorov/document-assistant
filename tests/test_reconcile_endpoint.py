@@ -224,3 +224,65 @@ class TestReconcileEndpoint:
         assert resp.status_code == 200
         # policy clause (9) + the override folder's ДС 5 clause (3) = 2 distinct clauses
         assert resp.json()["matrix"]["clause_count"] == 2
+
+
+class TestIncompleteMatrixBlocksReconciliation:
+    """Production incident: the general policy (.doc) failed to parse, the
+    matrix was built from ДС alone, and a full-looking report was returned.
+    Reconciliation must refuse instead."""
+
+    def test_unreadable_policy_returns_422_not_a_report(self, tmp_path: Path, client):
+        (tmp_path / "ГП полис.docx").write_text("not a real docx", encoding="utf-8")
+        ds_dir = tmp_path / "ДС"
+        ds_dir.mkdir()
+        d = Document()
+        d.add_paragraph("ДС.")
+        d.save(ds_dir / "ДС 1 (п.9).docx")
+        decl_path = _make_declaration(tmp_path, "200")
+
+        resp = client.post("/api/reconcile", json={
+            "request_id": 1,
+            "policy_folder": str(tmp_path),
+            "declaration_paths": [str(decl_path)],
+        })
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "Генеральный полис" in detail
+        assert "ГП полис.docx" in detail
+
+    def test_no_result_file_is_written_when_matrix_incomplete(self, tmp_path: Path, client):
+        (tmp_path / "ГП полис.docx").write_text("not a real docx", encoding="utf-8")
+        ds_dir = tmp_path / "ДС"
+        ds_dir.mkdir()
+        d = Document()
+        d.add_paragraph("ДС.")
+        d.save(ds_dir / "ДС 1 (п.9).docx")
+        decl_path = _make_declaration(tmp_path, "200")
+
+        client.post("/api/reconcile", json={
+            "request_id": 1,
+            "policy_folder": str(tmp_path),
+            "declaration_paths": [str(decl_path)],
+        })
+
+        assert list(tmp_path.glob("*результат проверки*")) == []
+
+    def test_incomplete_matrix_is_not_cached(self, tmp_path: Path, client):
+        """Otherwise the next run reports «взята из кэша» and hides the
+        original failure."""
+        (tmp_path / "ГП полис.docx").write_text("not a real docx", encoding="utf-8")
+        ds_dir = tmp_path / "ДС"
+        ds_dir.mkdir()
+        d = Document()
+        d.add_paragraph("ДС.")
+        d.save(ds_dir / "ДС 1 (п.9).docx")
+        decl_path = _make_declaration(tmp_path, "200")
+
+        client.post("/api/reconcile", json={
+            "request_id": 1,
+            "policy_folder": str(tmp_path),
+            "declaration_paths": [str(decl_path)],
+        })
+
+        assert not (tmp_path / "_matrix_cache.json").exists()

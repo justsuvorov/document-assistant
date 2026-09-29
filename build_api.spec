@@ -29,6 +29,11 @@ a = Analysis(
         'document_assistant.reports',
         'document_assistant.services',
         'document_assistant.cargo',
+        # Чтение legacy .doc через Word COM
+        'pythoncom',
+        'pywintypes',
+        'win32com',
+        'win32com.client',
     ],
     collect_submodules=['document_assistant'],
     hookspath=[],
