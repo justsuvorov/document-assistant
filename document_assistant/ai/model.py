@@ -207,12 +207,58 @@ class VskAIModel(AIModel):
             },
         )
         resp.raise_for_status()
-        data = resp.json()
-        text = data["choices"][0]["message"]["content"]
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-        if not text:
-            raise ValueError("VSK AI не вернул текст")
-        return text
+        return self._extract_text(resp.json())
+
+    # Начало таблицы ответа — по нему достаём ответ, если он попал в reasoning.
+    _TABLE_START = re.compile(r"^\|\s*Требование клиента", re.MULTILINE)
+
+    @classmethod
+    def _extract_text(cls, data: dict) -> str:
+        """Текст ответа из chat/completions.
+
+        vLLM с reasoning-parser кладёт рассуждение в ``message.reasoning_content``,
+        а ``content`` бывает ``None``: модель не дошла до ответа (``finish_reason=length``)
+        или парсер не нашёл конец рассуждения и отдал всё в reasoning.
+        """
+        choices = data.get("choices") or []
+        if not choices:
+            raise ValueError(f"VSK AI не вернул текст: в ответе нет choices, ключи={sorted(data)}")
+        choice = choices[0]
+        message = choice.get("message") or {}
+        finish = choice.get("finish_reason")
+        usage = data.get("usage") or {}
+
+        content = message.get("content")
+        if isinstance(content, list):  # формат «частей» OpenAI
+            content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        text = re.sub(r"<think>.*?</think>", "", content or "", flags=re.DOTALL).strip()
+
+        reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+        logger.info(
+            f"VSK AI ответ: finish_reason={finish}, "
+            f"prompt_tokens={usage.get('prompt_tokens')}, "
+            f"completion_tokens={usage.get('completion_tokens')}, "
+            f"content={len(text)} симв., reasoning={len(reasoning)} симв.")
+        if text:
+            if finish == "length":
+                logger.warning(f"VSK AI: ответ обрезан по max_tokens={settings.vsk_max_tokens} — "
+                               "таблица может быть неполной")
+            return text
+
+        match = cls._TABLE_START.search(reasoning)
+        if match:
+            logger.warning("VSK AI: content пуст, таблица ответа найдена в reasoning_content — "
+                           "берём её (reasoning-parser не отделил ответ от рассуждения)")
+            return reasoning[match.start():].strip()
+
+        hint = ""
+        if finish == "length":
+            hint = (f" — модель исчерпала max_tokens={settings.vsk_max_tokens}, не дойдя до ответа; "
+                    "уменьшите VSK_THINKING_TOKEN_BUDGET или увеличьте VSK_MAX_TOKENS")
+        elif finish == "content_filter":
+            hint = " — ответ заблокирован фильтром содержимого на стороне VSK AI"
+        raise ValueError(f"VSK AI не вернул текст (finish_reason={finish}, "
+                         f"reasoning={len(reasoning)} симв.){hint}")
 
     @staticmethod
     def _is_overload(exc: Exception) -> bool:
