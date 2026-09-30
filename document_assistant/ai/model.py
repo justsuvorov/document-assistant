@@ -99,6 +99,8 @@ class QwenModel(AIModel):
         resp.raise_for_status()
         data = resp.json()
         text = data["choices"][0]["text"]
+        if not text:
+            raise ValueError("Qwen не вернул текст")
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
         if not text:
             raise ValueError("Qwen не вернул текст")
@@ -223,6 +225,11 @@ class VskAIModel(AIModel):
         resp.raise_for_status()
         data = resp.json()
         text = data["choices"][0]["message"]["content"]
+        # content: null — модель израсходовала бюджет на рассуждение и не дала
+        # ответа. Без этой проверки re.sub падает с TypeError, а TypeError не
+        # проходит _is_overload и рвёт цепочку повторов на первой же попытке.
+        if not text:
+            raise ValueError("VSK AI не вернул текст")
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
         if not text:
             raise ValueError("VSK AI не вернул текст")

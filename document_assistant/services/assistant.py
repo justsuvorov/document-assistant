@@ -60,6 +60,13 @@ class AIAssistantService:
             for attempt in range(1, max_retries + 1):
                 try:
                     raw_response = self._model.response(query)
+                    if attempt > 1:
+                        # Иначе в логе остаётся одинокий WARN про неудачную
+                        # попытку, и непонятно, отработал повтор или чанк пропал.
+                        print(
+                            f"[INFO] Чанк {i}: успешно с попытки {attempt}/{max_retries}",
+                            flush=True,
+                        )
                     report = self._postprocessor.report(raw_response, i)
                     reports.append(report)
                     debug_lines.append(f"## Чанк {i} — {len(report.rows)} строк\n\n{raw_response}")
