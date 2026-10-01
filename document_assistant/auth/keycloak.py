@@ -152,7 +152,8 @@ def access_denied_reason(claims: TokenClaims) -> str | None:
 
     reason = (f"нет разрешённой группы {sorted(need_groups) or '—'} "
               f"или роли {sorted(need_roles) or '—'}; "
-              f"группы в токене: {claims.groups or 'нет'}")
+              f"группы в токене: {claims.groups or 'нет'}; "
+              f"роли в токене: {claims.roles or 'нет'}")
     if need_groups and not claims.groups:
         reason += (" — claim groups пуст: в Keycloak не настроен mapper «Group Membership» "
                    "для клиента или пользователь не состоит ни в одной группе")
