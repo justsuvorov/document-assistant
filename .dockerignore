@@ -33,3 +33,5 @@ _llm_stub.py;D
 reprocess_from_debug.py
 run-all.bat
 docker-compose.yaml
+web tests/
+cargo tests/
