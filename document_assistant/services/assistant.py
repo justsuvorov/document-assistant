@@ -83,6 +83,11 @@ class AIAssistantService:
                 "Проверьте, что json_path и file_path относятся к одному файлу."
             )
 
+        if payload.get("mode") == "by_id":
+            # Кэш от заполнения по ID — пересобирается своим путём.
+            from document_assistant.filling.service import TemplateFillService
+            return TemplateFillService.rebuild_from_payload(payload, file_path, task)
+
         postprocessor = PostProcessor()
         reports = []
         for chunk in payload["chunks"]:

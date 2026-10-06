@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     ai_role: str = Field(..., alias="AI_ROLE")
     ai_prompt_template: str = Field(..., alias="AI_PROMPT_TEMPLATE")
 
+    # --- Заполнение шаблона ---
+    # by_id  — модель отвечает по ID строк, запись строго по ID (document_assistant/filling).
+    # legacy — старый путь: ответ сопоставляется со строками шаблона по тексту.
+    # Только для .xlsx; остальные форматы всегда идут старым путём.
+    fill_mode: str = Field("by_id", alias="FILL_MODE")
+    # Смысловая часть промпта для by_id (плейсхолдеры как у AI_PROMPT_TEMPLATE).
+    # Пусто — встроенный DEFAULT_FILL_TEMPLATE. Формат ответа код добавляет сам.
+    ai_fill_prompt_template: str = Field("", alias="AI_FILL_PROMPT_TEMPLATE")
+
     # --- Логирование ---
     # DEBUG/INFO/WARNING/ERROR. Поднимается через ConfigMap без пересборки образа.
     log_level: str = Field("INFO", alias="LOG_LEVEL")
@@ -128,7 +137,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("ai_prompt_template", mode="before")
+    @field_validator("ai_prompt_template", "ai_fill_prompt_template", mode="before")
     @classmethod
     def unescape_newlines(cls, v: str) -> str:
         """Convert literal \\n sequences from .env into real newlines."""
