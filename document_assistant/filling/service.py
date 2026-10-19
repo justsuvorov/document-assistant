@@ -68,19 +68,19 @@ class TemplateFillService:
         validator = AnswerValidator(template.by_id())
         summaries: list[str] = []
         log_chunks: list[dict] = []
+        failed = 0
         for i, (table_md, ids) in enumerate(chunks, 1):
             logger.info(f"Часть {i}/{len(chunks)}: {len(ids)} строк ({ids[0]}…{ids[-1]})")
-            raw = self._model.response(self._prompts.build(table_md))
-            answers, summary = self._parser.parse(raw)
-            ok, bad = validator.add(answers, set(ids))
-            missing = len(ids) - sum(1 for r in ids if r in validator.accepted)
-            logger.info(f"Часть {i}/{len(chunks)}: ответов {len(answers)}, принято {ok}, "
-                        f"отброшено {bad}, без ответа {missing}")
+            entries, summary, answered = self._process_chunk(i, len(chunks), table_md, ids, validator)
+            log_chunks.extend(entries)
             if summary:
                 summaries.append(summary)
-            log_chunks.append({"index": i, "ids": ids, "raw_response": raw,
-                               "rows_parsed": len(answers), "accepted": ok, "rejected": bad})
+            failed += not answered
 
+        if failed == len(chunks):
+            raise RuntimeError(f"Модель не ответила ни по одной из {len(chunks)} частей — см. лог выше")
+        if failed:
+            logger.warning(f"Частей со сбоем модели: {failed}/{len(chunks)} — их строки «Не обработано»")
         self._log_totals(template, validator)
         self._save_artifacts(source, log_chunks, validator)
 
@@ -91,6 +91,54 @@ class TemplateFillService:
             "user_name": self._task.user_name,
             "output_file": str(output),
         }
+
+    def _process_chunk(
+        self, i: int, n: int, table_md: str, ids: list[str], validator: AnswerValidator,
+    ) -> tuple[list[dict], str, bool]:
+        """Запросить модель по части, при плохом ответе — ещё раз.
+
+        Возвращает (записи для артефактов, резюме, модель ответила хотя бы раз).
+
+        - Ошибка модели (после её собственных повторов) не роняет сессию: строки
+          части остаются «Не обработано», остальные части обрабатываются.
+        - Если принято меньше половины строк части, часть запрашивается ещё
+          один раз: ответ модели на тот же запрос заметно отличается от раза к
+          разу, и сбой формата на целую часть обычно не повторяется.
+        """
+        entries: list[dict] = []
+        summary = ""
+        answered = False
+        for attempt in (1, 2):
+            try:
+                raw = self._model.response(self._prompts.build(table_md))
+            except Exception as e:
+                logger.error(f"Часть {i}/{n}: ошибка модели — {type(e).__name__}: {e}. "
+                             "Строки части останутся «Не обработано»")
+                entries.append({"index": i, "attempt": attempt, "ids": ids,
+                                "error": f"{type(e).__name__}: {e}"})
+                break
+            answered = True
+            answers, chunk_summary = self._parser.parse(raw)
+            if attempt == 2:
+                # Принятое в 1-й попытке не трогаем: иначе в счётчиках будут «повторы ID».
+                answers = [a for a in answers if a.row_id not in validator.accepted]
+            rejected_before = len(validator.rejected)
+            ok, bad = validator.add(answers, set(ids))
+            reasons = Counter(r.reason for r in validator.rejected[rejected_before:])
+            done = sum(1 for r in ids if r in validator.accepted)
+            logger.info(f"Часть {i}/{n}{' (повтор)' if attempt == 2 else ''}: ответов {len(answers)}, "
+                        f"принято {ok}, отброшено {bad}{' ' + str(dict(reasons)) if reasons else ''}, "
+                        f"без ответа {len(ids) - done}")
+            entries.append({"index": i, "attempt": attempt, "ids": ids, "raw_response": raw,
+                            "rows_parsed": len(answers), "accepted": ok, "rejected": bad})
+            summary = summary or chunk_summary
+            if done * 2 >= len(ids) or attempt == 2:
+                break
+            logger.warning(
+                f"Часть {i}/{n}: принято {done}/{len(ids)} — меньше половины, повторяю запрос. "
+                f"Причины отбраковки: {dict(reasons) or 'строки с ID не найдены'}; "
+                f"начало ответа: {raw[:300]!r}")
+        return entries, summary, answered
 
     @staticmethod
     def _log_totals(template: ParsedTemplate, validator: AnswerValidator) -> None:
@@ -113,8 +161,10 @@ class TemplateFillService:
                           "requirement": r.answer.requirement} for r in validator.rejected],
         }
         debug = "\n\n---\n\n".join(
-            f"## Часть {c['index']} — {c['ids'][0]}…{c['ids'][-1]}, принято {c['accepted']}, "
-            f"отброшено {c['rejected']}\n\n{c['raw_response']}" for c in chunks)
+            f"## Часть {c['index']}, попытка {c['attempt']} — {c['ids'][0]}…{c['ids'][-1]}, "
+            + (f"ОШИБКА: {c['error']}" if "error" in c else
+               f"принято {c['accepted']}, отброшено {c['rejected']}\n\n{c['raw_response']}")
+            for c in chunks)
         try:
             source.with_name(source.stem + "_llm_output.json").write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -131,6 +181,8 @@ class TemplateFillService:
         parser = AnswerParser()
         summaries = []
         for chunk in payload["chunks"]:
+            if "raw_response" not in chunk:      # попытка со сбоем модели
+                continue
             answers, summary = parser.parse(chunk["raw_response"])
             validator.add(answers, set(chunk["ids"]))
             if summary:

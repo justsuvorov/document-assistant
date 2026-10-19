@@ -261,10 +261,18 @@ class ContextBuilder:
     """
 
     CHARS_PER_TOKEN = 3          # conservative for Russian text
-    OUTPUT_RESERVE = 20_000      # tokens reserved for model output
+    OUTPUT_RESERVE = 20_000      # tokens reserved for model output, если max_tokens не передан
 
-    def __init__(self, num_ctx: int, norm_index: NormativeIndex):
-        self._max_chars = (num_ctx - self.OUTPUT_RESERVE) * self.CHARS_PER_TOKEN
+    def __init__(self, num_ctx: int, norm_index: NormativeIndex, output_tokens: int | None = None):
+        # Резерв под ответ = max_tokens, который реально уходит в запрос: сервер
+        # модели отказывает, если промпт + max_tokens больше окна.
+        self._output_tokens = output_tokens or self.OUTPUT_RESERVE
+        self._num_ctx = num_ctx
+        self._max_chars = (num_ctx - self._output_tokens) * self.CHARS_PER_TOKEN
+        if self._max_chars <= 0:
+            raise ValueError(
+                f"Контекст модели ({num_ctx} токенов) не больше резерва под ответ "
+                f"({self._output_tokens} токенов max_tokens) — проверьте *_NUM_CTX и *_MAX_TOKENS")
         self._index = norm_index
 
     def build(
@@ -286,10 +294,13 @@ class ContextBuilder:
         norm_budget = self._max_chars - len(skeleton)
 
         if norm_budget <= 0:
-            logger.warning(
-                "Даже без нормативной базы промпт превышает контекст. "
-                "Обрезаем source_text.")
-            return prompt[: self._max_chars]
+            # Раньше здесь обрезался конец промпта — а там запрос клиента и
+            # правила формата ответа: модель молча отвечала без инструкции.
+            raise ValueError(
+                f"Промпт не помещается в контекст даже без нормативной базы: "
+                f"{len(skeleton)} симв. > {self._max_chars} симв. "
+                f"(окно {self._num_ctx} токенов − ответ {self._output_tokens}, "
+                f"~{self.CHARS_PER_TOKEN} симв./токен). Уменьшите LLM_BATCH_SIZE.")
 
         retrieved = self._index.retrieve(source_text, norm_budget)
         fitted = self._render(template, role, retrieved, examples, source_text)

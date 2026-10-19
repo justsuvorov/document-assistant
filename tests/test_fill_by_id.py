@@ -225,7 +225,10 @@ class TestReader:
         assert [r.text for r in t.rows] == ["Анализ крови", "Электрокардиография"]
         chunks = TemplateReader.chunks(t, 1)
         assert "биохимический" in chunks[0][0] and chunks[0][1] == ["R0001"]
-        assert "биохимический" not in chunks[1][0]
+        # Во второй части строки над ней — только контекст: без ID, ответить на них нельзя.
+        assert chunks[1][1] == ["R0002"]
+        assert "R0001" not in chunks[1][0]
+        assert "|  | Анализ крови |" in chunks[1][0]
 
 
 # ── Разбор ответа и проверка ──────────────────────────────────────────────────
@@ -324,3 +327,136 @@ class TestFactory:
 
     def test_docx_always_legacy(self, monkeypatch, tmp_path):
         assert type(self._build(monkeypatch, "by_id", tmp_path / "a.docx")).__name__ == "AIAssistantService"
+
+
+# ── Шаблоны вроде Е-СОМ: инструкции сверху, шапка не в 1-й строке ─────────────
+
+def _ecom_template(path: Path, n: int = 6) -> Path:
+    """Как «ТЗ для сверки Е-СОМ»: блок инструкций, шапка в 4-й строке,
+    слева от требования — номер и название раздела, формула в шапке."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Объем услуг"
+    ws.append([None, "ОТВЕТЫ ВЫБИРАЮТСЯ ИЗ ВЫПАДАЮЩЕГО СПИСКА"])
+    ws.append(["!!!!!", 'Необходимо выбирать "да", ТОЛЬКО если вы подтверждаете услугу без ограничений'])
+    ws.append([None, "Сравнение объема услуг", None, None, "='Другой лист'!C4"])
+    ws.append([None, "ID", "Раздел программы страхования", "Описание объема услуг", "Требования"])
+    for i in range(1, n + 1):
+        ws.append([None, f"2.{i}", "первичные и повторные приемы специалистов",
+                   f"специалист номер {i} уникальный", "обязательный минимум"])
+    wb.save(path)
+    return path
+
+
+class NaiveEchoModel(FakeModel):
+    """Эхо — первый непустой столбец после ID: так ошибалась модель в Е-СОМ."""
+
+    def response(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        lines = ["| ID | Требование (начало) | Покрытие | Статус | Комментарий |", "|---|---|---|---|---|"]
+        for line in prompt.splitlines():
+            m = re.match(r"^\| (R\d{4}) \|(.*)\|$", line)
+            if m:
+                first = next(c.strip() for c in m.group(2).split("|") if c.strip())
+                lines.append(f"| {m.group(1)} | {first} | п | Есть | к |")
+        return "\n".join(lines)
+
+
+class TestEcomLikeTemplate:
+    def test_header_row_detected_and_not_answered(self, tmp_path):
+        t = TemplateReader().read(_ecom_template(tmp_path / "e.xlsx"))
+        assert [r.row for r in t.rows] == list(range(5, 11))      # строка шапки 4 — без ID
+        assert t.tables[0].requirement_column == "D"
+        assert t.tables[0].titles["D"] == "Описание объема услуг"
+
+    def test_requirement_is_first_column_after_id_in_every_chunk(self, tmp_path):
+        t = TemplateReader().read(_ecom_template(tmp_path / "e.xlsx"))
+        chunks = TemplateReader.chunks(t, 2)
+        assert len(chunks) == 3
+        for md, ids in chunks:
+            assert "| ID | Требование (D: Описание объема услуг) |" in md
+            assert f"| {ids[0]} | специалист номер" in md
+            assert "Контекст (C: Раздел программы страхования)" in md
+
+    def test_formula_text_not_shown_to_model(self, tmp_path):
+        t = TemplateReader().read(_ecom_template(tmp_path / "e.xlsx"))
+        assert "='Другой лист'" not in TemplateReader.chunks(t, 50)[0][0]
+
+    def test_naive_echo_model_fills_everything(self, tmp_path, monkeypatch):
+        """Регрессия Е-СОМ: при старом порядке столбцов эхо бралось из «Раздела»,
+        и проверка отбрасывала всю часть."""
+        ws = _run(tmp_path, _ecom_template(tmp_path / "e.xlsx"), NaiveEchoModel(),
+                  batch_size=2, monkeypatch=monkeypatch)["Объем услуг"]
+        assert [_status(ws, r) for r in range(5, 11)] == ["Есть"] * 6
+
+    def test_instructions_repeated_in_every_chunk(self, tmp_path):
+        t = TemplateReader().read(_ecom_template(tmp_path / "e.xlsx"))
+        assert all("ТОЛЬКО если вы подтверждаете" in md for md, _ in TemplateReader.chunks(t, 2))
+
+
+# ── Повтор части и сбои модели ────────────────────────────────────────────────
+
+class FlakyModel(FakeModel):
+    """По очереди: ответы из ``script`` ("bad" — ответ без ID, "error" — исключение,
+    "good" — нормальный ответ)."""
+
+    def __init__(self, script):
+        super().__init__()
+        self._script = list(script)
+
+    def response(self, prompt: str) -> str:
+        step = self._script.pop(0) if self._script else "good"
+        if step == "error":
+            self.prompts.append(prompt)
+            raise RuntimeError("Ошибка VSK AI API: таймаут")
+        if step == "bad":
+            self.prompts.append(prompt)
+            return "Не могу ответить таблицей."
+        return super().response(prompt)
+
+
+class TestRetryAndFailures:
+    def test_bad_chunk_retried_once(self, tmp_path):
+        model = FlakyModel(["bad", "good"])
+        ws = _run(tmp_path, _template(tmp_path / "t.xlsx"), model)[SHEET]
+        assert len(model.prompts) == 2
+        assert [_status(ws, r) for r in range(2, 7)] == ["Есть"] * 5
+
+    def test_bad_twice_leaves_not_processed(self, tmp_path):
+        model = FlakyModel(["bad", "bad"])
+        ws = _run(tmp_path, _template(tmp_path / "t.xlsx"), model, batch_size=50)[SHEET]
+        assert len(model.prompts) == 2
+        assert {_status(ws, r) for r in range(2, 7)} == {NOT_PROCESSED}
+
+    def test_good_chunk_not_retried(self, tmp_path):
+        model = FakeModel()
+        _run(tmp_path, _template(tmp_path / "t.xlsx"), model)
+        assert len(model.prompts) == 1
+
+    def test_model_error_on_one_chunk_keeps_others(self, tmp_path, monkeypatch):
+        model = FlakyModel(["good", "error", "good"])
+        ws = _run(tmp_path, _template(tmp_path / "t.xlsx"), model, batch_size=2,
+                  monkeypatch=monkeypatch)[SHEET]
+        assert [_status(ws, r) for r in range(2, 7)] == [
+            "Есть", "Есть", NOT_PROCESSED, NOT_PROCESSED, "Есть"]
+
+    def test_all_chunks_failed_raises(self, tmp_path):
+        with pytest.raises(RuntimeError, match="ни по одной"):
+            _run(tmp_path, _template(tmp_path / "t.xlsx"), FlakyModel(["error"]))
+
+    def test_rebuild_from_artifacts_skips_failed_attempts(self, tmp_path, monkeypatch):
+        import json
+        src = _template(tmp_path / "t.xlsx")
+        _run(tmp_path, src, FlakyModel(["good", "error", "good"]), batch_size=2, monkeypatch=monkeypatch)
+        payload = json.loads((tmp_path / "t_llm_output.json").read_text(encoding="utf-8"))
+        assert any("error" in c for c in payload["chunks"])
+        out = TemplateFillService.rebuild_from_payload(payload, str(src), ProcessingTask(1, str(src)))
+        ws = load_workbook(out["output_file"])[SHEET]
+        assert _status(ws, 4) == NOT_PROCESSED and _status(ws, 6) == "Есть"
+
+
+def test_markup_removed_from_cells():
+    raw = "| R0001 | **текст** | `Ст. 2.1`<br>пункт | **Есть** | коммент<br/>второй |"
+    a = AnswerParser().parse(raw)[0][0]
+    assert (a.requirement, a.coverage, a.status, a.comment) == (
+        "текст", "Ст. 2.1 пункт", "Есть", "коммент второй")

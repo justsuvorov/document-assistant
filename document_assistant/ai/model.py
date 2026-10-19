@@ -89,6 +89,7 @@ class QwenModel(AIModel):
                 "model": self._model_name,
                 "prompt": query,
                 "max_tokens": settings.qwen_max_tokens,
+                "temperature": settings.ai_temperature,
             },
         )
         resp.raise_for_status()
@@ -204,13 +205,33 @@ class VskAIModel(AIModel):
                 "messages": [{"role": "user", "content": query}],
                 "thinking_token_budget": settings.vsk_thinking_token_budget,
                 "max_tokens": settings.vsk_max_tokens,
+                # Без этого сервер берёт свою температуру по умолчанию (у моделей
+                # с рассуждением обычно 0.6–1.0) — ответы заметно «гуляют» между запусками.
+                "temperature": settings.ai_temperature,
             },
         )
         resp.raise_for_status()
         return self._extract_text(resp.json())
 
-    # Начало таблицы ответа — по нему достаём ответ, если он попал в reasoning.
-    _TABLE_START = re.compile(r"^\|\s*Требование клиента", re.MULTILINE)
+    # Строка-разделитель markdown-таблицы: | --- | :---: |
+    _TABLE_SEPARATOR = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
+
+    @classmethod
+    def _last_table(cls, text: str) -> str:
+        """Текст начиная с шапки ПОСЛЕДНЕЙ markdown-таблицы, или "" если таблиц нет.
+
+        Формат конкретного пайплайна модель не знает и знать не должна: какая
+        таблица — ответ, решает его разбор. Последняя — потому что черновики
+        в рассуждении идут раньше итоговой таблицы.
+        """
+        lines = text.splitlines()
+        seps = [i for i, ln in enumerate(lines) if cls._TABLE_SEPARATOR.match(ln)]
+        if not seps:
+            return ""
+        start = seps[-1]
+        if start > 0 and lines[start - 1].lstrip().startswith("|"):
+            start -= 1
+        return "\n".join(lines[start:]).strip()
 
     @classmethod
     def _extract_text(cls, data: dict) -> str:
@@ -245,11 +266,12 @@ class VskAIModel(AIModel):
                                "таблица может быть неполной")
             return text
 
-        match = cls._TABLE_START.search(reasoning)
-        if match:
-            logger.warning("VSK AI: content пуст, таблица ответа найдена в reasoning_content — "
-                           "берём её (reasoning-parser не отделил ответ от рассуждения)")
-            return reasoning[match.start():].strip()
+        table = cls._last_table(reasoning)
+        if table:
+            logger.warning("VSK AI: content пуст, в reasoning_content есть таблица — берём текст "
+                           f"с последней таблицы ({len(table)} симв.; reasoning-parser не отделил "
+                           f"ответ от рассуждения, finish_reason={finish})")
+            return table
 
         hint = ""
         if finish == "length":

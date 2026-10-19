@@ -33,6 +33,11 @@ def _num_ctx() -> int:
     return settings.vsk_num_ctx if settings.ai_provider == "vsk" else settings.qwen_num_ctx
 
 
+def _max_tokens() -> int:
+    # Сколько токенов ответа запрашивается у модели — столько и резервируем в окне.
+    return settings.vsk_max_tokens if settings.ai_provider == "vsk" else settings.qwen_max_tokens
+
+
 def build_dms_service(
     task: ProcessingTask, normative_base: str | None = None
 ) -> ProcessingService:
@@ -54,6 +59,7 @@ def build_dms_service(
                 template=settings.ai_fill_prompt_template,
                 normative_base=normative_base or settings.normative_base,
                 num_ctx=_num_ctx(),
+                output_tokens=_max_tokens(),
             ),
             fallback=lambda: _build_legacy(task, normative_base),
         )
@@ -83,6 +89,7 @@ def _build_legacy(
                 template=settings.ai_prompt_template,
                 normative_base=normative_base or settings.normative_base,
                 num_ctx=_num_ctx(),
+                output_tokens=_max_tokens(),
             ),
             examples_path=settings.examples_path,
         ),

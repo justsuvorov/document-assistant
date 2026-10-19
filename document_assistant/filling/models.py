@@ -34,6 +34,9 @@ class TableLine:
 class SheetTable:
     sheet: str
     columns: list[str]            # буквы видимых столбцов, например ["D", "E"]
+    requirement_column: str = ""  # буква столбца требований (один из ``columns``)
+    # Подписи столбцов из строки шапки шаблона (буква → текст); пусто — шапки нет.
+    titles: dict[str, str] = field(default_factory=dict)
     lines: list[TableLine] = field(default_factory=list)
 
 

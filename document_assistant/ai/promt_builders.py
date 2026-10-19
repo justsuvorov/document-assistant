@@ -72,12 +72,13 @@ class PromptEngine:
     the most relevant ones (keyword overlap with source_text).
     """
 
-    def __init__(self, role: str, template: str, normative_base: str, num_ctx: int):
+    def __init__(self, role: str, template: str, normative_base: str, num_ctx: int,
+                 output_tokens: int | None = None):
         self._role = role
         self._template = template
         norm_text = NormativeBaseLoader().load(normative_base)
         self._norm_index = NormativeIndex(norm_text)
-        self._context_builder = ContextBuilder(num_ctx, self._norm_index)
+        self._context_builder = ContextBuilder(num_ctx, self._norm_index, output_tokens)
         logger.info(
             f"Нормативная база: {self._norm_index.section_count} разделов, "
             f"контекст {num_ctx} токенов")

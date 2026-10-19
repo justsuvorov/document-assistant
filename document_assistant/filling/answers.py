@@ -16,6 +16,14 @@ _ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 _ID_RE = re.compile(r"^\**\s*R\s*0*(\d+)\s*\**$", re.IGNORECASE)
 _SUMMARY_RE = re.compile(r"^#{1,3}\s*(Резюме|Вывод|Summary)", re.MULTILINE | re.IGNORECASE)
 _ELLIPSIS_TAIL = re.compile(r"[\s;,:.]*(?:\.\.\.|…)\s*$")
+_MARKUP = re.compile(r"\*\*|__|`")
+_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+def _clean(cell: str) -> str:
+    """Убрать markdown-разметку, которую модель оставляет в ячейках (**жирный**,
+    `код`, <br>): в Excel это «лишние символы»."""
+    return " ".join(_MARKUP.sub("", _BR.sub(" ", cell)).split())
 
 
 class AnswerParser:
@@ -45,7 +53,7 @@ class AnswerParser:
             if not id_match:
                 continue
             row_id = format_row_id(int(id_match.group(1)))
-            rest = cells[1:]
+            rest = [_clean(c) for c in cells[1:]]
             if len(rest) == 3:
                 rest = [""] + rest
             rest += [""] * (4 - len(rest))

@@ -117,3 +117,27 @@ class TestExamplesLoader:
         sub.mkdir()
         (sub / "only_one.txt").write_text("один файл")
         assert ExamplesLoader().load(str(tmp_path)) == []
+
+
+class TestContextBudget:
+    """Резерв под ответ = max_tokens; не помещающийся промпт — ошибка, а не обрезка."""
+
+    @staticmethod
+    def _builder(num_ctx, output_tokens, norm="норматив " * 10):
+        from document_assistant.ai.context_builder import ContextBuilder, NormativeIndex
+        return ContextBuilder(num_ctx, NormativeIndex(norm), output_tokens)
+
+    def test_reserve_uses_max_tokens(self):
+        # 1000 токенов окна − 900 на ответ = 100 токенов ≈ 300 символов под промпт
+        with pytest.raises(ValueError, match="не помещается"):
+            self._builder(1000, 900).build("{normative_base}{source_text}", "", "", "x" * 400)
+        assert self._builder(1000, 100).build("{normative_base}{source_text}", "", "", "x" * 400)
+
+    def test_contract_at_the_end_is_never_cut(self):
+        template = "{role}{normative_base}{examples}{source_text}\nФОРМАТ ОТВЕТА"
+        with pytest.raises(ValueError, match="LLM_BATCH_SIZE"):
+            self._builder(1000, 900).build(template, "", "", "таблица " * 200)
+
+    def test_reserve_not_less_than_window(self):
+        with pytest.raises(ValueError, match="не больше резерва"):
+            self._builder(1000, 1000)
